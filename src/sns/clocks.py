@@ -13,6 +13,8 @@ TIER_C_CV_PCT = 3.0
 TIER_A_RANGE_MHZ = 30.0
 # nvidia-smi may land a few MHz off the requested boost bin.
 LOCK_READBACK_TOLERANCE_MHZ = 30.0
+# A power cap that lands a couple of watts off is fine; one that was refused is not.
+POWER_READBACK_TOLERANCE_W = 2.0
 
 
 class ClockLockError(RuntimeError):
@@ -69,15 +71,32 @@ class LockedClockPolicy:
 
     def apply(self) -> None:
         _run_smi(["-lgc", f"{self.target_sm_mhz},{self.target_sm_mhz}"])
-        # nvidia-smi exits 0 when it refuses the write, so the exit code
-        # proves nothing. Only the readback does.
-        observed = smi_query_float("clocks.sm")
-        if observed is None or abs(observed - self.target_sm_mhz) > LOCK_READBACK_TOLERANCE_MHZ:
-            raise ClockLockError(
-                f"requested {self.target_sm_mhz} MHz, device reports {observed}"
-            )
-        if self.power_cap_w is not None:
-            _run_smi(["-pl", str(self.power_cap_w)])
+        try:
+            # nvidia-smi exits 0 when it refuses the write, so the exit code
+            # proves nothing. Only the readback does.
+            observed = smi_query_float("clocks.sm")
+            if (
+                observed is None
+                or abs(observed - self.target_sm_mhz) > LOCK_READBACK_TOLERANCE_MHZ
+            ):
+                raise ClockLockError(
+                    f"requested {self.target_sm_mhz} MHz, device reports {observed}"
+                )
+            if self.power_cap_w is not None:
+                _run_smi(["-pl", str(self.power_cap_w)])
+                observed_w = smi_query_float("power.limit")
+                if (
+                    observed_w is None
+                    or abs(observed_w - self.power_cap_w) > POWER_READBACK_TOLERANCE_W
+                ):
+                    raise ClockLockError(
+                        f"requested {self.power_cap_w} W cap, device reports {observed_w}"
+                    )
+        except Exception:
+            # The -lgc write already reached the device. Leaving it applied
+            # after a loud failure silently pins the GPU for everything after.
+            self.restore()
+            raise
         self.locked = True
 
     def restore(self) -> None:
