@@ -53,16 +53,24 @@ def make_inputs(spec: ShapeSpec, seed: int, n_inputs: int = 2, device: str = "cp
             # rather than simulated by a transpose of a square. Cast to the
             # target dtype *before* slicing: `.to(dtype)` materializes a
             # fresh contiguous copy, which would silently undo the stride
-            # trick if applied after the slice.
-            padded = torch.randn(
-                (*spec.dims[:-1], spec.dims[-1] * 2),
-                generator=gen,
-                dtype=torch.float32,
-            ).to(dtype)
+            # trick if applied after the slice. Move to the target device
+            # before slicing too: `.to(device)` on an already-strided tensor
+            # copies it into a fresh contiguous allocation on the new
+            # device, which would just as silently undo the stride trick at
+            # the device boundary instead.
+            padded = (
+                torch.randn(
+                    (*spec.dims[:-1], spec.dims[-1] * 2),
+                    generator=gen,
+                    dtype=torch.float32,
+                )
+                .to(dtype)
+                .to(device)
+            )
             t = padded[..., ::2]
         else:
-            t = torch.randn(spec.dims, generator=gen, dtype=torch.float32).to(dtype)
-        out.append(t.to(device))
+            t = torch.randn(spec.dims, generator=gen, dtype=torch.float32).to(dtype).to(device)
+        out.append(t)
     return out
 
 
