@@ -20,11 +20,29 @@ from sns.timing import compare
 
 
 def _hash_callable(fn: Callable) -> str:
-    """Hash the source, so the same kernel produces the same id across runs."""
+    """Hash a callable so the same kernel is recognisable across runs.
+
+    Source is preferred. The fallback must never be repr() for a plain
+    function: that embeds a memory address, so the same kernel would get a
+    fresh identity every process and a catalog would never match it to its
+    own history.
+
+    Known limitation: two functools.partial wrappers of the *same* function
+    with different bound arguments hash identically, since only the
+    underlying function's source/qualname is used. Left unsolved rather than
+    hashing bound arguments, which are often tensors whose reprs are
+    themselves unstable across processes.
+    """
+    target = getattr(fn, "func", fn)  # unwrap functools.partial
     try:
-        src = inspect.getsource(fn)
+        src = inspect.getsource(target)
     except (OSError, TypeError):
-        src = repr(fn)
+        module = getattr(target, "__module__", "?")
+        qualname = getattr(target, "__qualname__", None)
+        if qualname is None:
+            # Last resort: a type name is stable where an instance repr is not.
+            qualname = type(target).__name__
+        src = f"{module}.{qualname}"
     return hashlib.sha256(src.encode()).hexdigest()[:16]
 
 
@@ -36,7 +54,13 @@ def _device_index(device: str) -> int:
     string form. "cuda" alone means index 0, matching torch's own default.
     """
     if ":" in device:
-        return int(device.rsplit(":", 1)[-1])
+        suffix = device.rsplit(":", 1)[-1]
+        try:
+            return int(suffix)
+        except ValueError:
+            raise ValueError(
+                f"could not parse a device index from {device!r}"
+            ) from None
     return 0
 
 

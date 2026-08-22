@@ -83,3 +83,31 @@ def test_kernel_hash_is_stable_for_the_same_function(tmp_path):
                    root=tmp_path, time_it=False)
     assert one.kernel_hash == two.kernel_hash
     assert one.run_id != two.run_id
+
+
+def test_kernel_hash_is_stable_for_a_partial():
+    """repr() of a plain function embeds a memory address, so a partial-wrapped
+    kernel would otherwise get a new identity every process."""
+    import functools
+
+    from sns.runner import _hash_callable
+
+    def base(a, b, scale):
+        return (a + b) * scale
+
+    p = functools.partial(base, scale=2.0)
+    assert _hash_callable(p) == _hash_callable(functools.partial(base, scale=2.0))
+    # And it must not contain anything address-shaped.
+    assert _hash_callable(p) == _hash_callable(p)
+
+
+def test_different_kernels_hash_differently():
+    from sns.runner import _hash_callable
+
+    def one(a, b):
+        return a + b
+
+    def two(a, b):
+        return a * b
+
+    assert _hash_callable(one) != _hash_callable(two)
