@@ -32,6 +32,10 @@ def _verdict(rec) -> str:
     if rec.comparison is None:
         return "[dim]no timing[/dim]"
     c = rec.comparison
+    if not c.is_performance_valid:
+        # Tier C: the measurement was too unstable to support any verdict.
+        # Withholding one is the entire point of the tier system.
+        return f"[yellow]UNSTABLE[/yellow] [dim](tier {c.tier.value})[/dim]"
     if c.speedup_ci_lo > 1.2:
         return f"[green]FASTER {c.speedup:.2f}x[/green]"
     if c.speedup_ci_hi < 0.95:
@@ -94,6 +98,10 @@ def show(run_id: str, root: Path = ROOT):
         console.print(f"\n  [bold]performance[/bold]  {_verdict(r)}")
         console.print(f"    candidate {c.candidate.median_ms:.4f} ms   baseline {c.baseline.median_ms:.4f} ms")
         console.print(f"    95% CI    [{c.speedup_ci_lo:.3f}, {c.speedup_ci_hi:.3f}]   tier {c.tier.value}")
+        if not c.is_performance_valid:
+            console.print(
+                f"    [yellow]tier {c.tier.value} — measurement too unstable for a performance verdict[/yellow]"
+            )
     else:
         console.print("\n  [bold]performance[/bold]  [dim]no timing[/dim]")
     if r.memory.peak_allocated_bytes:

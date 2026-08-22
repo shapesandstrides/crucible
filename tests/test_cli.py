@@ -4,6 +4,7 @@ from typer.testing import CliRunner
 from sns.cli import app
 from sns.metrics import DeviceInfo
 from sns.records import RunRecord, new_run_id, save_run
+from sns.types import ComparisonResult, MeasurementTier, TimingResult
 
 runner = CliRunner()
 
@@ -18,6 +19,20 @@ def _seed_run(root, name="my_kernel", **kw):
     )
     save_run(r, root=root)
     return r
+
+
+def _timing(median, tier=MeasurementTier.B):
+    return TimingResult(
+        samples_ms=[median] * 30, median_ms=median, p10_ms=median, p90_ms=median,
+        ci95_lo_ms=median, ci95_hi_ms=median, n=30, tier=tier, warmup=200,
+    )
+
+
+def _comparison(tier):
+    return ComparisonResult(
+        candidate=_timing(1.0, tier), baseline=_timing(1.0, tier),
+        speedup=1.0, speedup_ci_lo=0.99, speedup_ci_hi=1.01,
+    )
 
 
 def test_runs_on_empty_store_says_so_rather_than_crashing(tmp_path):
@@ -75,3 +90,31 @@ def test_runs_json_output_is_machine_readable(tmp_path):
     res = runner.invoke(app, ["runs", "--root", str(tmp_path), "--json"])
     assert res.exit_code == 0
     assert isinstance(json.loads(res.stdout), list)
+
+
+def test_runs_withholds_a_verdict_for_an_unstable_run(tmp_path):
+    """Tier C means no performance verdict is valid. Reporting PARITY for a
+    throttled measurement is the failure this tier exists to prevent."""
+    rec = _seed_run(tmp_path, comparison=_comparison(MeasurementTier.C))
+    res = runner.invoke(app, ["runs", "--root", str(tmp_path)])
+    assert res.exit_code == 0
+    assert "PARITY" not in res.stdout
+    assert "FASTER" not in res.stdout
+    assert "UNSTABLE" in res.stdout
+
+
+def test_show_flags_an_unstable_measurement(tmp_path):
+    rec = _seed_run(tmp_path, comparison=_comparison(MeasurementTier.C))
+    res = runner.invoke(app, ["show", rec.run_id, "--root", str(tmp_path)])
+    assert res.exit_code == 0
+    assert "tier C" in res.stdout.lower() or "unstable" in res.stdout.lower()
+
+
+@pytest.mark.parametrize("tier", [MeasurementTier.A, MeasurementTier.B])
+def test_runs_still_renders_a_verdict_for_stable_tiers(tmp_path, tier):
+    """Do not over-correct: Tier A/B measurements must still get a verdict."""
+    _seed_run(tmp_path, comparison=_comparison(tier))
+    res = runner.invoke(app, ["runs", "--root", str(tmp_path)])
+    assert res.exit_code == 0
+    assert "UNSTABLE" not in res.stdout
+    assert "PARITY" in res.stdout
