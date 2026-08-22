@@ -114,3 +114,43 @@ def test_dtype_tolerance_is_applied_per_dtype():
     r = check(lambda a, b: a + b, reference=lambda a, b: a + b,
               tier=ShapeTier.FAST, dtypes=["float16"], op_name="add")
     assert r.passed
+
+
+@requires_gpu
+def test_kernels_actually_receive_noncontiguous_inputs():
+    """The stride bug has appeared twice: once in make_inputs and once at the
+    device transfer. Both times the non-contiguous shape class silently proved
+    nothing. Assert the property itself, not a downstream symptom."""
+    contiguity_seen = []
+
+    def spy(a, b):
+        contiguity_seen.append(a.is_contiguous())
+        return a + b
+
+    check(
+        spy,
+        reference=lambda a, b: a + b,
+        tier=ShapeTier.FAST,
+        dtypes=["float32"],
+        op_name="add",
+    )
+
+    assert contiguity_seen, "the spy was never called"
+    assert False in contiguity_seen, (
+        "no non-contiguous input ever reached the kernel — the shape class "
+        "is being silently re-contiguified somewhere"
+    )
+
+
+@requires_gpu
+def test_a_kernel_that_returns_garbage_fails_every_shape():
+    """Pins the failure path independently of any specific bug."""
+    r = check(
+        lambda a, b: torch.full_like(a, 12345.0),
+        reference=lambda a, b: a + b,
+        tier=ShapeTier.FAST,
+        dtypes=["float32"],
+        op_name="add",
+    )
+    assert not r.passed
+    assert r.failed_count == r.total, "every shape should fail for a constant-garbage kernel"
