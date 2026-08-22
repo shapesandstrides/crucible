@@ -1,0 +1,133 @@
+"""The correctness runner.
+
+Walks a shape space, builds deterministic inputs, adjudicates each output
+against the fp64 oracle, and shrinks any failures to the smallest case that
+still reproduces.
+"""
+
+from typing import Callable
+
+from pydantic import BaseModel
+
+from sns.oracle import (
+    OracleResult,
+    compare_against_oracle,
+    compare_outputs,
+    make_inputs,
+    reference_fp64,
+)
+from sns.shapes import ShapeSpec, ShapeTier, generate_shapes
+from sns.tolerance import tolerance_for
+
+DEFAULT_SEED = 0xC0FFEE
+
+
+class ShapeOutcome(BaseModel):
+    spec: ShapeSpec
+    passed: bool
+    seed: int
+    oracle: OracleResult | None = None
+    # One entry per kernel output. `oracle` mirrors outputs[0] for
+    # convenience; multi-output kernels put the rest here.
+    outputs: list[OracleResult] = []
+    error: str | None = None
+
+
+class CorrectnessReport(BaseModel):
+    outcomes: list[ShapeOutcome] = []
+    passed: bool = True
+    total: int = 0
+    failed_count: int = 0
+    minimal_failure: ShapeOutcome | None = None
+    replay_command: str = ""
+
+
+def shrink_to_minimal(failures: list[ShapeOutcome]) -> ShapeOutcome | None:
+    """The smallest failing case is the one a human can actually debug.
+
+    We do not search for a smaller shape than the ones tested; we pick the
+    smallest that already failed. That keeps shrinking free and keeps every
+    reported case one we genuinely observed. The label is a secondary sort
+    key purely to make ties deterministic regardless of input order; for two
+    shapes with equal element counts there is no principled "more minimal"
+    one, so the tiebreak need not be meaningful, only stable.
+    """
+    if not failures:
+        return None
+    return min(failures, key=lambda o: (o.spec.numel(), o.spec.label))
+
+
+def check(
+    fn: Callable,
+    reference: Callable,
+    tier: ShapeTier = ShapeTier.FAST,
+    dtypes: list[str] | None = None,
+    seed: int = DEFAULT_SEED,
+    n_inputs: int = 2,
+    op_name: str = "unknown",
+    device: str = "cuda",
+    max_elements: int | None = None,
+    fused_ops: list[str] | None = None,
+    tolerance_override: tuple[float, float] | None = None,
+) -> CorrectnessReport:
+    """Run a kernel across a shape space and adjudicate every output."""
+    import torch
+
+    dtypes = dtypes or ["float16", "float32"]
+    specs = generate_shapes(tier, dtypes=dtypes, max_elements=max_elements)
+    outcomes: list[ShapeOutcome] = []
+
+    for i, spec in enumerate(specs):
+        # Derive a per-shape seed from the run seed so each shape gets
+        # distinct inputs while the whole run stays reproducible.
+        shape_seed = seed + i
+        try:
+            # Build inputs twice, once per device, rather than building once
+            # and calling .to(device). Moving a non-contiguous tensor to
+            # CUDA silently re-contiguifies it, which would make the whole
+            # non-contiguous shape class vacuous. Same seed on both calls
+            # gives value-identical tensors, so the oracle and the kernel
+            # see the same numbers.
+            cpu_inputs = make_inputs(spec, seed=shape_seed, n_inputs=n_inputs, device="cpu")
+            dev_inputs = make_inputs(spec, seed=shape_seed, n_inputs=n_inputs, device=device)
+            actual = fn(*dev_inputs)
+            expected = reference_fp64(
+                reference, cpu_inputs, out_dtype=getattr(torch, spec.dtype)
+            )
+            atol, rtol = tolerance_for(
+                op_name, spec.dtype, fused_ops=fused_ops, override=tolerance_override
+            )
+            results = compare_outputs(actual, expected, atol=atol, rtol=rtol)
+            outcomes.append(
+                ShapeOutcome(
+                    spec=spec,
+                    passed=all(r.passed for r in results),
+                    seed=shape_seed,
+                    oracle=results[0],
+                    outputs=results,
+                )
+            )
+        except Exception as e:
+            outcomes.append(
+                ShapeOutcome(
+                    spec=spec,
+                    passed=False,
+                    seed=shape_seed,
+                    error=f"{type(e).__name__}: {e}",
+                )
+            )
+
+    failures = [o for o in outcomes if not o.passed]
+    minimal = shrink_to_minimal(failures)
+    replay = ""
+    if minimal is not None:
+        replay = f"sns replay --shape {minimal.spec.label} --seed {minimal.seed}"
+
+    return CorrectnessReport(
+        outcomes=outcomes,
+        passed=not failures,
+        total=len(outcomes),
+        failed_count=len(failures),
+        minimal_failure=minimal,
+        replay_command=replay,
+    )
