@@ -66,3 +66,6 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+
+# SDD scratch
+.superpowers/
