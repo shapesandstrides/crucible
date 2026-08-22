@@ -34,9 +34,11 @@ def test_bootstrap_ci_is_deterministic():
     assert bootstrap_ci(samples, seed=42) == bootstrap_ci(samples, seed=42)
 
 
-def test_bootstrap_ci_narrows_with_more_samples():
-    tight = [1.0, 1.01, 0.99] * 20
-    loose = [1.0, 2.0, 0.5] * 20
+def test_bootstrap_ci_narrows_with_tighter_data():
+    """The median is a rank statistic, so the datasets must differ in spread
+    across distinct values — not merely in the magnitude of a few repeats."""
+    tight = [1.0 + i * 0.001 for i in range(60)]
+    loose = [1.0 + i * 0.1 for i in range(60)]
     t_lo, t_hi = bootstrap_ci(tight)
     l_lo, l_hi = bootstrap_ci(loose)
     assert (t_hi - t_lo) < (l_hi - l_lo)
