@@ -164,9 +164,23 @@ def compare(
     back to back. The baseline is never read from cache — a stale baseline
     makes it impossible to distinguish a kernel regression from an upstream
     improvement, which is the whole point of the tool.
+
+    Known limitation: the candidate is measured first and the baseline second,
+    so on unlocked hardware the second measurement runs on a warmer, more
+    boosted GPU. Comparing identical work on an RTX 3060 laptop yielded a
+    speedup of 0.962 rather than 1.0 from this effect alone. Tier A pinning
+    largely removes it; Tier B and C comparisons carry it. Interleaving the
+    two sides is planned for Phase 1.
     """
     candidate = measure(candidate_fn, **kwargs)
     baseline = measure(baseline_fn, **kwargs)
+
+    if candidate.median_ms <= 0:
+        raise ValueError(
+            "candidate measured 0 ms: the timed region fell below CUDA event "
+            "resolution. Raise iters, or check that the callable does real work."
+        )
+
     lo, hi = ratio_ci(candidate.samples_ms, baseline.samples_ms)
 
     return ComparisonResult(

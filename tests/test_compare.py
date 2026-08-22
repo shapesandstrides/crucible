@@ -44,6 +44,17 @@ def test_comparison_tier_a_requires_both_sides_locked():
     assert c.tier is MeasurementTier.A
 
 
+def test_compare_rejects_a_zero_median_candidate(monkeypatch):
+    """A 0 ms candidate must fail loudly, not raise ZeroDivisionError."""
+    from sns import timing
+
+    results = iter([_timing(0.0), _timing(1.0)])
+    monkeypatch.setattr(timing, "measure", lambda *a, **k: next(results))
+
+    with pytest.raises(ValueError, match="0 ms"):
+        timing.compare(lambda: None, lambda: None)
+
+
 @requires_gpu
 def test_compare_measures_both_sides_in_one_call():
     from sns.timing import compare
