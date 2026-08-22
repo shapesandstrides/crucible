@@ -137,12 +137,16 @@ def dim_value(cls: DimClass, block: int | None = None) -> int:
             DimClass.UNIT: 1,
         }[cls]
 
+    # Large blocks would push a squared shape past the element cap and get
+    # dropped entirely. Shrinking the multiple keeps the awkwardness — the
+    # tail is what matters, not the number of whole tiles before it.
+    mult = 4 if block <= 512 else 2
     if cls is DimClass.ALIGNED:
-        return block * 4
+        return block * mult
     if cls is DimClass.TAIL_ONE:
-        return block * 4 + 1
+        return block * mult + 1
     if cls is DimClass.TAIL_PARTIAL:
-        return block * 4 + max(2, block // 2)
+        return block * mult + max(2, block // 2)
     if cls is DimClass.SUB_TILE:
         return max(1, block - 1)
     if cls is DimClass.PRIME:
@@ -186,9 +190,16 @@ def _tile_cases(tier: ShapeTier, tiles) -> list[tuple[tuple[int, ...], str]]:
         for name in tiles.names:
             seen.update(tiles.blocks_for(name))
         if seen:
-            blocks = sorted(seen)
+            specific = sorted(seen)
             if tier is ShapeTier.FAST:
-                blocks = blocks[:2]
+                # Smallest and largest, not the two smallest: the largest
+                # block is what autotune picks for big shapes, so dropping
+                # it skips the config most likely to run in production.
+                specific = sorted({specific[0], specific[-1]})
+            # Generic values stay: a declared block does not rule out other
+            # implicit tilings, and large shapes exercise multi-block paths
+            # that a small declared block never reaches.
+            blocks = [None] + specific
 
     out: list[tuple[tuple[int, ...], str]] = []
     for block in blocks:

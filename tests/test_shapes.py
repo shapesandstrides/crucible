@@ -157,3 +157,16 @@ def test_fast_stays_inner_loop_sized_with_tiles():
     ts = TileSpace(names=["BLOCK_M"], candidates={"BLOCK_M": [32, 64, 128]}, source="declared")
     specs = generate_shapes(ShapeTier.FAST, dtypes=["float16"], tiles=ts)
     assert len(specs) <= 40, "the fast tier must stay usable in an inner loop"
+
+
+def test_large_blocks_are_not_silently_dropped_by_the_element_cap():
+    """The double-tail case is the most valuable shape we generate; a size
+    cap must shrink it, never discard it."""
+    from sns.tiles import TileSpace
+
+    ts = TileSpace(names=["BLOCK_M"], candidates={"BLOCK_M": [2048]}, source="declared")
+    specs = generate_shapes(ShapeTier.EXHAUSTIVE, dtypes=["float16"], tiles=ts)
+    assert any(
+        len(s.dims) == 2 and s.dims[0] % 2048 == 1 and s.dims[1] % 2048 == 1
+        for s in specs
+    ), "a double-tail case must survive for large declared blocks"
