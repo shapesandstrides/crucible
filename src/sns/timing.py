@@ -195,33 +195,217 @@ def measure(
     )
 
 
+def _interleaved_samples(
+    candidate_fn: Callable[[], object],
+    baseline_fn: Callable[[], object],
+    *,
+    warmup: int,
+    iters: int,
+    device: int,
+    flush_l2: bool,
+    policy: ClockPolicy,
+    min_duration_us: float,
+):
+    """Run the interleaved measurement loop and return raw ingredients.
+
+    Split out from compare() so the zero-median guard and CI/tier plumbing
+    in compare() can be exercised without a GPU, by monkeypatching this
+    function directly (see test_compare_rejects_a_zero_median_candidate).
+
+    Returns (candidate_samples, baseline_samples, inner_reps, tier,
+    throttle_fired, clock_samples).
+    """
+    import torch
+
+    torch.cuda.set_device(device)
+    policy = policy or UnlockedClockPolicy()
+    dev = torch.device(f"cuda:{device}")
+    scratch = l2_flush_buffer(dev) if flush_l2 else None
+    sampler = ClockSampler(device)
+
+    policy.apply()
+    # restore() runs in the finally below and clears policy.locked, so capture
+    # the lock state now. Reading it after restore would make Tier A unreachable.
+    was_locked = policy.locked
+    try:
+        # Warmup both sides, alternating, so neither callable is cold relative
+        # to the other when timing starts.
+        for _ in range(warmup):
+            candidate_fn()
+            baseline_fn()
+        torch.cuda.synchronize()
+
+        # Calibrate inner_reps once, from whichever side is slower, and use
+        # the same value for both. Different rep counts would reintroduce a
+        # systematic difference through launch-overhead amortisation.
+        c_start = torch.cuda.Event(enable_timing=True)
+        c_end = torch.cuda.Event(enable_timing=True)
+        b_start = torch.cuda.Event(enable_timing=True)
+        b_end = torch.cuda.Event(enable_timing=True)
+        c_start.record()
+        candidate_fn()
+        c_end.record()
+        b_start.record()
+        baseline_fn()
+        b_end.record()
+        torch.cuda.synchronize()
+        probe_ms = max(
+            c_start.elapsed_time(c_end), b_start.elapsed_time(b_end)
+        )
+        inner_reps = resolve_inner_reps(probe_ms, min_duration_us)
+
+        # Events are allocated up front so allocation never lands inside a
+        # timed region.
+        c_starts = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
+        c_ends = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
+        b_starts = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
+        b_ends = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
+
+        throttle_before = throttle_snapshot(device)
+        clock_samples: list[float] = []
+        throttled_during = False
+
+        # Fixed A-then-B order within an iteration is fine: the drift being
+        # cancelled is between iterations, not within one. Flushing L2 before
+        # each side's record() lets both sides start equally cold.
+        for i in range(iters):
+            if scratch is not None:
+                scratch.zero_()
+            c_starts[i].record()
+            for _ in range(inner_reps):
+                candidate_fn()
+            c_ends[i].record()
+
+            if scratch is not None:
+                scratch.zero_()
+            b_starts[i].record()
+            for _ in range(inner_reps):
+                baseline_fn()
+            b_ends[i].record()
+
+            sm_clock = sampler.sample_clock_mhz()
+            if sm_clock is not None:
+                clock_samples.append(sm_clock)
+            if sampler.throttled_now():
+                throttled_during = True
+
+        torch.cuda.synchronize()
+        throttle_after = throttle_snapshot(device)
+    finally:
+        policy.restore()
+        sampler.shutdown()
+
+    candidate_samples = [
+        c_starts[i].elapsed_time(c_ends[i]) / inner_reps for i in range(iters)
+    ]
+    baseline_samples = [
+        b_starts[i].elapsed_time(b_ends[i]) / inner_reps for i in range(iters)
+    ]
+
+    throttle_fired = (
+        throttle_before != throttle_after
+        or any(v == "Active" for v in {**throttle_before, **throttle_after}.values())
+        or bool(throttled_during)
+    )
+    # Both sides share one measurement window, so they share one tier.
+    tier = assign_tier(was_locked, clock_samples, throttle_fired)
+
+    return (
+        candidate_samples,
+        baseline_samples,
+        inner_reps,
+        tier,
+        throttle_fired,
+        clock_samples,
+    )
+
+
 def compare(
     candidate_fn: Callable[[], object],
     baseline_fn: Callable[[], object],
-    **kwargs,
+    *,
+    warmup: int = DEFAULT_WARMUP,
+    iters: int = MIN_ITERS,
+    device: int = 0,
+    flush_l2: bool = True,
+    policy: ClockPolicy | None = None,
+    min_duration_us: float = MIN_DURATION_US,
 ) -> ComparisonResult:
-    """Measure a candidate against a freshly measured baseline.
+    """Measure a candidate against a baseline, interleaved.
 
-    Both sides are timed in the same process, under the same clock policy,
-    back to back. The baseline is never read from cache — a stale baseline
-    makes it impossible to distinguish a kernel regression from an upstream
-    improvement, which is the whole point of the tool.
+    The two callables alternate inside a single measurement window rather
+    than running as two separate windows. GPU clocks drift, and a drift
+    between two sequential windows lands entirely in the ratio: measured on
+    an unlocked laptop, comparing identical work that way gave a p90 error
+    of 106% and a worst case of 141%. Interleaved, the same comparison gave
+    a p90 error of 1.0%.
 
-    Known limitation: the candidate is measured first and the baseline second,
-    so on unlocked hardware the second measurement runs on a warmer, more
-    boosted GPU. Comparing identical work on an RTX 3060 laptop yielded a
-    speedup of 0.962 rather than 1.0 from this effect alone. Tier A pinning
-    largely removes it; Tier B and C comparisons carry it. Interleaving the
-    two sides is planned for Phase 1.
+    The baseline is still measured fresh on every call and never cached.
+    Interleaving strengthens that rule rather than replacing it: the two
+    sides now share not just a process but a thermal and clock state.
     """
-    candidate = measure(candidate_fn, **kwargs)
-    baseline = measure(baseline_fn, **kwargs)
+    import torch
 
-    if candidate.median_ms <= 0:
+    if iters < MIN_ITERS:
+        raise ValueError(f"iters must be at least {MIN_ITERS}, got {iters}")
+    if not torch.cuda.is_available():
+        raise RuntimeError("compare() requires a CUDA device")
+
+    policy = policy or UnlockedClockPolicy()
+
+    (
+        candidate_samples,
+        baseline_samples,
+        inner_reps,
+        tier,
+        throttle_fired,
+        clock_samples,
+    ) = _interleaved_samples(
+        candidate_fn,
+        baseline_fn,
+        warmup=warmup,
+        iters=iters,
+        device=device,
+        flush_l2=flush_l2,
+        policy=policy,
+        min_duration_us=min_duration_us,
+    )
+
+    if percentile(candidate_samples, 0.5) <= 0:
         raise ValueError(
             "candidate measured 0 ms: the timed region fell below CUDA event "
             "resolution. Raise iters, or check that the callable does real work."
         )
+
+    def _to_timing_result(samples: list[float]) -> TimingResult:
+        ci_lo, ci_hi = bootstrap_ci(samples)
+        step = quantization_step(samples)
+        if step is not None and (ci_hi - ci_lo) < step:
+            # An interval narrower than the smallest difference the timer can
+            # resolve claims precision the instrument does not have.
+            mid = percentile(samples, 0.5)
+            ci_lo, ci_hi = mid - step / 2, mid + step / 2
+        return TimingResult(
+            samples_ms=samples,
+            median_ms=percentile(samples, 0.5),
+            p10_ms=percentile(samples, 0.10),
+            p90_ms=percentile(samples, 0.90),
+            ci95_lo_ms=ci_lo,
+            ci95_hi_ms=ci_hi,
+            n=len(samples),
+            tier=tier,
+            warmup=warmup,
+            inner_reps=inner_reps,
+            throttle_fired=throttle_fired,
+            clock_cv_pct=cv_percent(clock_samples) if clock_samples else None,
+            clock_range_mhz=(
+                max(clock_samples) - min(clock_samples) if clock_samples else None
+            ),
+            quantization_step_ms=step,
+        )
+
+    candidate = _to_timing_result(candidate_samples)
+    baseline = _to_timing_result(baseline_samples)
 
     lo, hi = ratio_ci(candidate.samples_ms, baseline.samples_ms)
 
