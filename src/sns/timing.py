@@ -6,7 +6,7 @@ from typing import Callable
 from sns.clocks import ClockPolicy, UnlockedClockPolicy, assign_tier
 from sns.env import smi_query_float, throttle_snapshot
 from sns.stats import bootstrap_ci, cv_percent, percentile
-from sns.types import MeasurementTier, TimingResult
+from sns.types import TimingResult
 
 MIN_ITERS = 30
 DEFAULT_WARMUP = 200
@@ -25,6 +25,18 @@ def l2_flush_buffer(device):
     l2_bytes = getattr(props, "L2_cache_size", 0) or 0
     nbytes = max(MIN_FLUSH_BYTES, l2_bytes * 2)
     return torch.empty(nbytes // 4, device=device, dtype=torch.float32)
+
+
+def clock_sample_stride(iters: int, max_samples: int = MAX_CLOCK_SAMPLES) -> int:
+    """Loop stride that keeps clock samples at or below max_samples.
+
+    Ceiling division, not floor: floor lets the count exceed the cap for many
+    iteration counts, including the default of 30, which is the whole point of
+    having a cap.
+    """
+    if iters <= 0 or max_samples <= 0:
+        return 1
+    return max(1, math.ceil(iters / max_samples))
 
 
 def resolve_inner_reps(single_iter_ms: float, min_duration_us: float) -> int:
@@ -96,7 +108,7 @@ def measure(
         # Sampling the clock costs an nvidia-smi subprocess (tens of ms), so take a
         # bounded number of evenly-spaced samples rather than one per iteration.
         # Sampling every iteration would perturb the duty cycle we are measuring.
-        clock_sample_every = max(1, iters // MAX_CLOCK_SAMPLES)
+        clock_sample_every = clock_sample_stride(iters)
 
         for i in range(iters):
             if scratch is not None:
