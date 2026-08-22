@@ -94,16 +94,124 @@ def _base_cases(tier: ShapeTier) -> list[tuple[tuple[int, ...], str]]:
     return cases
 
 
+class DimClass(str, Enum):
+    """A dimension is awkward in a *kind* of way.
+
+    Describing the kinds and crossing them beats a hand-picked list,
+    because it produces shapes awkward in several dimensions at once —
+    which is where fused-kernel bugs live.
+    """
+
+    ALIGNED = "aligned"            # a clean multiple of every common block
+    TAIL_ONE = "tail_one"          # one past a multiple: a tail of exactly 1
+    TAIL_PARTIAL = "tail_partial"  # a substantial partial tile
+    SUB_TILE = "sub_tile"          # smaller than one block; all masked
+    PRIME = "prime"                # indivisible by every block, all at once
+    UNIT = "unit"                  # size 1
+
+
+# 4096 is a multiple of every power-of-two block up to itself, so 4097
+# leaves a tail of exactly 1 for all of them simultaneously. That is what
+# lets the generic path work without knowing anyone's block size.
+_GENERIC_ALIGNED = 4096
+_GENERIC_TAIL_ONE = 4097
+_GENERIC_TAIL_PARTIAL = 4133
+_GENERIC_SUB_TILE = 7
+_GENERIC_PRIME = 1021
+
+
+def dim_value(cls: DimClass, block: int | None = None) -> int:
+    """A concrete dimension length for a class.
+
+    Without a block size we use values awkward for every power-of-two block
+    at once. With one, we can be exact — which matters for non-power-of-two
+    blocks like 96, whose tails the generic values would miss entirely.
+    """
+    if block is None:
+        return {
+            DimClass.ALIGNED: _GENERIC_ALIGNED,
+            DimClass.TAIL_ONE: _GENERIC_TAIL_ONE,
+            DimClass.TAIL_PARTIAL: _GENERIC_TAIL_PARTIAL,
+            DimClass.SUB_TILE: _GENERIC_SUB_TILE,
+            DimClass.PRIME: _GENERIC_PRIME,
+            DimClass.UNIT: 1,
+        }[cls]
+
+    if cls is DimClass.ALIGNED:
+        return block * 4
+    if cls is DimClass.TAIL_ONE:
+        return block * 4 + 1
+    if cls is DimClass.TAIL_PARTIAL:
+        return block * 4 + max(2, block // 2)
+    if cls is DimClass.SUB_TILE:
+        return max(1, block - 1)
+    if cls is DimClass.PRIME:
+        return _GENERIC_PRIME
+    return 1
+
+
+# FAST cannot afford the full 6x6 cross product, so it takes the classes
+# that catch the most, plus the interactions a one-dimension-at-a-time list
+# can never reach.
+_FAST_PAIRS: list[tuple[DimClass, DimClass]] = [
+    (DimClass.ALIGNED, DimClass.ALIGNED),
+    (DimClass.TAIL_ONE, DimClass.ALIGNED),
+    (DimClass.ALIGNED, DimClass.TAIL_ONE),
+    (DimClass.TAIL_ONE, DimClass.TAIL_ONE),        # both tails at once
+    (DimClass.TAIL_ONE, DimClass.TAIL_PARTIAL),    # mixed tails
+    (DimClass.PRIME, DimClass.PRIME),
+    (DimClass.SUB_TILE, DimClass.TAIL_ONE),        # masked tile plus a tail
+    (DimClass.UNIT, DimClass.ALIGNED),
+]
+
+# A default run must not try to allocate a shape that OOMs a small card.
+_MAX_CROSSED_ELEMENTS = 40_000_000
+
+
+def _class_pairs(tier: ShapeTier) -> list[tuple[DimClass, DimClass]]:
+    if tier is ShapeTier.FAST:
+        return _FAST_PAIRS
+    if tier is ShapeTier.CANONICAL:
+        return [(DimClass.ALIGNED, DimClass.ALIGNED)]
+    return [(a, b) for a in DimClass for b in DimClass]
+
+
+def _tile_cases(tier: ShapeTier, tiles) -> list[tuple[tuple[int, ...], str]]:
+    """Class-crossed cases, block-aware when a tile space is known."""
+    blocks: list[int | None] = [None]
+    if tiles is not None and getattr(tiles, "candidates", None):
+        # Cover every candidate: autotune may select any of them, and a
+        # config only chosen for large inputs can still be broken.
+        seen: set[int] = set()
+        for name in tiles.names:
+            seen.update(tiles.blocks_for(name))
+        if seen:
+            blocks = sorted(seen)
+            if tier is ShapeTier.FAST:
+                blocks = blocks[:2]
+
+    out: list[tuple[tuple[int, ...], str]] = []
+    for block in blocks:
+        for a, b in _class_pairs(tier):
+            dims = (dim_value(a, block), dim_value(b, block))
+            if dims[0] * dims[1] > _MAX_CROSSED_ELEMENTS:
+                continue
+            out.append((dims, "contiguous"))
+    return out
+
+
 def generate_shapes(
     tier: ShapeTier,
     dtypes: list[str],
     max_elements: int | None = None,
+    tiles=None,
 ) -> list[ShapeSpec]:
     """Generate the shape space for a tier. Deterministic and ordered."""
     seen: set[str] = set()
     out: list[ShapeSpec] = []
+    cases = _base_cases(tier) + _tile_cases(tier, tiles)
     for dtype in dtypes:
-        for dims, layout in _base_cases(tier):
+        for dims, layout in cases:
             spec = ShapeSpec(
                 dims=dims,
                 dtype=dtype,
