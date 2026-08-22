@@ -5,8 +5,8 @@ from typing import Callable
 
 from sns.clocks import ClockPolicy, UnlockedClockPolicy, assign_tier
 from sns.env import smi_query_float, throttle_snapshot
-from sns.stats import bootstrap_ci, cv_percent, percentile
-from sns.types import TimingResult
+from sns.stats import bootstrap_ci, cv_percent, percentile, ratio_ci
+from sns.types import ComparisonResult, TimingResult
 
 MIN_ITERS = 30
 DEFAULT_WARMUP = 200
@@ -150,4 +150,29 @@ def measure(
         clock_range_mhz=(
             max(clock_samples) - min(clock_samples) if clock_samples else None
         ),
+    )
+
+
+def compare(
+    candidate_fn: Callable[[], object],
+    baseline_fn: Callable[[], object],
+    **kwargs,
+) -> ComparisonResult:
+    """Measure a candidate against a freshly measured baseline.
+
+    Both sides are timed in the same process, under the same clock policy,
+    back to back. The baseline is never read from cache — a stale baseline
+    makes it impossible to distinguish a kernel regression from an upstream
+    improvement, which is the whole point of the tool.
+    """
+    candidate = measure(candidate_fn, **kwargs)
+    baseline = measure(baseline_fn, **kwargs)
+    lo, hi = ratio_ci(candidate.samples_ms, baseline.samples_ms)
+
+    return ComparisonResult(
+        candidate=candidate,
+        baseline=baseline,
+        speedup=baseline.median_ms / candidate.median_ms,
+        speedup_ci_lo=lo,
+        speedup_ci_hi=hi,
     )

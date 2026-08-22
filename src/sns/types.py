@@ -68,3 +68,30 @@ class EnvironmentFingerprint(BaseModel):
 
     def matches(self, other: "EnvironmentFingerprint") -> bool:
         return self.model_dump() == other.model_dump()
+
+
+class ComparisonResult(BaseModel):
+    """A candidate measured against a baseline timed in the same session.
+
+    The baseline is never cached across runs. Re-measuring it every time is
+    what lets us tell "my kernel regressed" from "torch got faster", and it
+    is what makes the ratio comparable across machines and architectures.
+    """
+
+    candidate: TimingResult
+    baseline: TimingResult
+    speedup: float
+    speedup_ci_lo: float
+    speedup_ci_hi: float
+
+    @property
+    def tier(self) -> MeasurementTier:
+        """A comparison is only as trustworthy as its worse half."""
+        order = [MeasurementTier.A, MeasurementTier.B, MeasurementTier.C]
+        return max(
+            (self.candidate.tier, self.baseline.tier), key=order.index
+        )
+
+    @property
+    def is_performance_valid(self) -> bool:
+        return self.tier is not MeasurementTier.C
