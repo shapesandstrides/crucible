@@ -1,5 +1,5 @@
 # Design docs and internal notes — local only, never pushed
-docs/
+docs/superpowers/
 CLAUDE.md
 *.local.md
 notes/
@@ -69,3 +69,6 @@ Thumbs.db
 
 # SDD scratch
 .superpowers/
+
+# MkDocs build output
+site/
