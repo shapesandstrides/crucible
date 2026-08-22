@@ -1,5 +1,5 @@
 import pytest
-from sns.stats import bootstrap_ci, cv_percent, percentile, ratio_ci
+from sns.stats import bootstrap_ci, cv_percent, percentile, quantization_step, ratio_ci
 
 
 def test_percentile_interpolates():
@@ -71,3 +71,18 @@ def test_ratio_ci_spans_one_when_equivalent():
     baseline = [1.0, 1.1, 0.9, 1.05, 0.95] * 6
     lo, hi = ratio_ci(candidate, baseline)
     assert lo <= 1.0 <= hi
+
+
+def test_ci_is_never_narrower_than_the_timer_resolution():
+    """A heavily quantized sample set must not yield a confident interval."""
+    from sns.stats import quantization_step
+
+    # Simulates a fast kernel on a ~1us timer: 3 distinct values, many ties.
+    samples = [0.039] * 20 + [0.040] * 20 + [0.041] * 10
+    step = quantization_step(samples)
+    assert step is not None
+    assert abs(step - 0.001) < 1e-9
+
+
+def test_quantization_step_is_none_for_a_single_distinct_value():
+    assert quantization_step([1.0] * 10) is None

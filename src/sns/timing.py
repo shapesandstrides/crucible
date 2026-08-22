@@ -5,13 +5,13 @@ from typing import Callable
 
 from sns.clocks import ClockPolicy, UnlockedClockPolicy, assign_tier
 from sns.env import throttle_snapshot
-from sns.stats import bootstrap_ci, cv_percent, percentile, ratio_ci
+from sns.stats import bootstrap_ci, cv_percent, percentile, quantization_step, ratio_ci
 from sns.telemetry import ClockSampler
 from sns.types import ComparisonResult, TimingResult
 
 MIN_ITERS = 30
 DEFAULT_WARMUP = 200
-MIN_DURATION_US = 10.0
+MIN_DURATION_US = 1000.0
 MIN_FLUSH_BYTES = 256 * 1024 * 1024
 # Historical cap from when clock sampling meant shelling out to nvidia-smi
 # (tens of ms per call). NVML samples in-process at microsecond latency, so
@@ -45,8 +45,13 @@ def clock_sample_stride(iters: int, max_samples: int = MAX_CLOCK_SAMPLES) -> int
 def resolve_inner_reps(single_iter_ms: float, min_duration_us: float) -> int:
     """How many times to run fn inside one timed region.
 
-    Anything under ~10 us cannot be timed reliably: CUDA event overhead and
-    system variance dominate. Loop until the window clears the floor.
+    CUDA event resolution is ~1 us, so a window a few microseconds long has
+    every sample land on one of a handful of quantized values; a bootstrap
+    CI over such data can come out narrower than the timer's resolution,
+    which is a false precision claim, not a tight measurement. The floor
+    exists so quantization is small relative to the effect size we're
+    trying to detect, not merely so the timer can register the event at
+    all. Loop until the window clears the floor.
     """
     if single_iter_ms <= 0:
         return 1000
@@ -69,6 +74,15 @@ def measure(
     """Time a callable honestly.
 
     Returns an interval and a quality tier, never a bare number.
+
+    min_duration_us sets the floor for the timed window (see
+    resolve_inner_reps). It exists to make CUDA event quantization small
+    relative to the effect size we claim to detect, not merely to clear the
+    timer's own floor for registering an event at all: a window barely above
+    the timer's resolution still ties heavily, and a bootstrap CI over tied
+    data can land narrower than the timer can actually resolve. As a second
+    line of defense, the CI is widened to at least one quantization step
+    below (see quantization_step in sns.stats).
 
     Known limitation: the reported CI is a bootstrap over samples within a
     single measurement window, so it captures sampling error inside that
@@ -154,6 +168,13 @@ def measure(
     tier = assign_tier(was_locked, clock_samples, throttle_fired)
     ci_lo, ci_hi = bootstrap_ci(samples)
 
+    step = quantization_step(samples)
+    if step is not None and (ci_hi - ci_lo) < step:
+        # An interval narrower than the smallest difference the timer can
+        # resolve claims precision the instrument does not have.
+        mid = percentile(samples, 0.5)
+        ci_lo, ci_hi = mid - step / 2, mid + step / 2
+
     return TimingResult(
         samples_ms=samples,
         median_ms=percentile(samples, 0.5),
@@ -170,6 +191,7 @@ def measure(
         clock_range_mhz=(
             max(clock_samples) - min(clock_samples) if clock_samples else None
         ),
+        quantization_step_ms=step,
     )
 
 

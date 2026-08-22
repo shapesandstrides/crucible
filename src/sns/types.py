@@ -38,6 +38,7 @@ class TimingResult(BaseModel):
     throttle_fired: bool = False
     clock_cv_pct: float | None = None
     clock_range_mhz: float | None = None
+    quantization_step_ms: float | None = None
 
     @field_validator("samples_ms")
     @classmethod
