@@ -51,9 +51,14 @@ def test_dtypes_multiply_the_space():
 
 def test_max_elements_filters_large_shapes():
     small = generate_shapes(ShapeTier.EXHAUSTIVE, dtypes=["float16"], max_elements=10_000)
-    assert all(
-        _numel(s) <= 10_000 for s in small
-    ), "max_elements must exclude shapes that would OOM a small card"
+    unfiltered = generate_shapes(ShapeTier.EXHAUSTIVE, dtypes=["float16"])
+
+    assert len(small) > 0, "filtering must not drop everything"
+    assert len(small) < len(unfiltered), "filtering must actually exclude something"
+    assert all(_numel(s) <= 10_000 for s in small)
+    # A shape well over the cap must be gone.
+    assert not any(_numel(s) > 10_000 for s in small)
+    assert any(_numel(s) > 10_000 for s in unfiltered), "test premise: some shapes exceed the cap"
 
 
 def _numel(spec):

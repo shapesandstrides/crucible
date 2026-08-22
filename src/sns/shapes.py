@@ -72,14 +72,22 @@ def _base_cases(tier: ShapeTier) -> list[tuple[tuple[int, ...], str]]:
         # Timing tier: aligned, large enough to dominate launch overhead.
         return [((n, n), "contiguous") for n in POWER_OF_TWO_DIMS]
 
+    # Track dims/layout pairs already present to avoid duplicates from FAST tier.
+    existing_dims = {c[0] for c in cases}
+
     for d in TILE_BOUNDARY_DIMS:
-        cases.append(((d, 512), "contiguous"))
+        if (d, 512) not in existing_dims:
+            cases.append(((d, 512), "contiguous"))
+            existing_dims.add((d, 512))
         cases.append(((512, d), "contiguous"))
+        existing_dims.add(((512, d),))
     for d in PRIME_DIMS:
         cases.append(((d, d), "contiguous"))
         cases.append(((d, 1024), "noncontiguous"))
     for d in POWER_OF_TWO_DIMS:
-        cases.append(((d, d), "contiguous"))
+        if (d, d) not in existing_dims:
+            cases.append(((d, d), "contiguous"))
+            existing_dims.add((d, d))
         cases.append(((d, d), "noncontiguous"))
     cases.append(((1,), "contiguous"))
     cases.append(((2, 3, 5, 7), "contiguous"))
