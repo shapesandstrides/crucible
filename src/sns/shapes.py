@@ -80,7 +80,7 @@ def _base_cases(tier: ShapeTier) -> list[tuple[tuple[int, ...], str]]:
             cases.append(((d, 512), "contiguous"))
             existing_dims.add((d, 512))
         cases.append(((512, d), "contiguous"))
-        existing_dims.add(((512, d),))
+        existing_dims.add((512, d))
     for d in PRIME_DIMS:
         cases.append(((d, d), "contiguous"))
         cases.append(((d, 1024), "noncontiguous"))

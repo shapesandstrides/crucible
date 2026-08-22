@@ -45,14 +45,30 @@ def test_clock_sample_stride_is_never_zero():
     assert clock_sample_stride(0) >= 1
 
 
-def test_persistent_throttling_is_detected_not_just_transitions():
+def test_persistent_hw_thermal_throttling_is_detected_not_just_transitions():
     """before == after == Active means throttled the whole window, not clean."""
-    snap = {"sw_power_cap": "Active", "hw_thermal_slowdown": "Not Active"}
-    fired = (
-        snap != snap
-        or any(v == "Active" for v in {**snap, **snap}.values())
-    )
+    from sns.env import hw_thermal_throttle_active
+
+    snap = {"sw_power_cap": "Not Active", "hw_thermal_slowdown": "Active"}
+    fired = hw_thermal_throttle_active(snap) or hw_thermal_throttle_active(snap)
     assert fired is True
+
+
+def test_power_cap_alone_is_not_hw_thermal_throttling():
+    """sw_power_cap Active on an idle GPU must not read as thermal distress."""
+    from sns.env import hw_thermal_throttle_active
+
+    snap = {"sw_power_cap": "Active", "hw_thermal_slowdown": "Not Active"}
+    assert hw_thermal_throttle_active(snap) is False
+
+
+def test_sw_thermal_slowdown_alone_is_not_hw_thermal_throttling():
+    """Measured Active on real laptop hardware at idle, 55C, 18W — a
+    software flag stuck on is not the hardware safety-circuit assertion."""
+    from sns.env import hw_thermal_throttle_active
+
+    snap = {"sw_thermal_slowdown": "Active", "hw_thermal_slowdown": "Not Active"}
+    assert hw_thermal_throttle_active(snap) is False
 
 
 @requires_gpu

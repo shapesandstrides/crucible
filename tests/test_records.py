@@ -2,8 +2,12 @@ import json
 
 import pytest
 
+from sns.correctness import CorrectnessReport, ShapeOutcome
 from sns.metrics import DeviceInfo, MemoryMetrics, RuntimeContext
+from sns.oracle import OracleResult
 from sns.records import RunRecord, list_runs, load_run, new_run_id, save_run
+from sns.shapes import ShapeSpec
+from sns.types import ComparisonResult, MeasurementTier, TimingResult
 
 
 def _record(**kw):
@@ -84,3 +88,97 @@ def test_a_corrupt_file_is_skipped_not_fatal(tmp_path):
     save_run(_record(), root=tmp_path)
     (tmp_path / "runs" / "broken.json").write_text("{not json")
     assert len(list_runs(root=tmp_path)) == 1
+
+
+def test_a_record_with_a_shape_mismatch_round_trips(tmp_path):
+    """A run whose kernel returned the wrong shape must survive save/load.
+    Using inf as a sentinel made such runs vanish from the catalog entirely."""
+    mismatch = OracleResult(
+        passed=False,
+        max_abs_error=None,
+        max_rel_error=None,
+        mismatch_count=-1,
+        total_elements=100,
+        shape_mismatch=True,
+    )
+    outcome = ShapeOutcome(
+        spec=ShapeSpec(dims=(10, 10), dtype="float32", layout="contiguous", label="10x10"),
+        passed=False,
+        seed=1,
+        oracle=mismatch,
+        outputs=[mismatch],
+    )
+    correctness = CorrectnessReport(
+        outcomes=[outcome],
+        passed=False,
+        total=1,
+        failed_count=1,
+        minimal_failure=outcome,
+        replay_command="sns replay --shape 10x10 --seed 1",
+    )
+    r = _record(correctness=correctness)
+    save_run(r, root=tmp_path)
+
+    listed = list_runs(root=tmp_path)
+    assert len(listed) == 1, "the shape-mismatch record must not vanish from the catalog"
+
+    back = load_run(r.run_id, root=tmp_path)
+    assert back.correctness.outcomes[0].oracle.shape_mismatch is True
+    assert back.correctness.outcomes[0].oracle.max_abs_error is None
+    assert back.correctness.outcomes[0].oracle.max_rel_error is None
+
+
+def _timing_result(median=1.0, tier=MeasurementTier.B):
+    return TimingResult(
+        samples_ms=[median] * 30,
+        median_ms=median,
+        p10_ms=median,
+        p90_ms=median,
+        ci95_lo_ms=median * 0.98,
+        ci95_hi_ms=median * 1.02,
+        n=30,
+        tier=tier,
+        warmup=200,
+    )
+
+
+def test_a_fully_populated_record_round_trips(tmp_path):
+    """No existing test round-trips correctness, timing, and comparison
+    together. That gap is what hid the inf-sentinel bug."""
+    good = OracleResult(
+        passed=True,
+        max_abs_error=1e-5,
+        max_rel_error=1e-5,
+        mismatch_count=0,
+        total_elements=100,
+    )
+    outcome = ShapeOutcome(
+        spec=ShapeSpec(dims=(10, 10), dtype="float32", layout="contiguous", label="10x10"),
+        passed=True,
+        seed=1,
+        oracle=good,
+        outputs=[good],
+    )
+    correctness = CorrectnessReport(
+        outcomes=[outcome], passed=True, total=1, failed_count=0,
+    )
+    candidate = _timing_result(1.0)
+    baseline = _timing_result(2.0)
+    comparison = ComparisonResult(
+        candidate=candidate,
+        baseline=baseline,
+        speedup=2.0,
+        speedup_ci_lo=1.9,
+        speedup_ci_hi=2.1,
+    )
+    r = _record(correctness=correctness, timing=candidate, comparison=comparison)
+    save_run(r, root=tmp_path)
+
+    listed = list_runs(root=tmp_path)
+    assert len(listed) == 1
+
+    back = load_run(r.run_id, root=tmp_path)
+    assert back.correctness.passed
+    assert back.timing.median_ms == 1.0
+    assert back.comparison.speedup == 2.0
+    assert back.comparison.tier is MeasurementTier.B

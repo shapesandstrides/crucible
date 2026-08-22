@@ -35,7 +35,17 @@ class TimingResult(BaseModel):
     tier: MeasurementTier
     warmup: int
     inner_reps: int = 1
+    # Hardware thermal assertion only (hw_thermal_slowdown). This is the
+    # only throttle flag that gates the tier down to C: it comes from the
+    # GPU's own hardware safety circuit, not driver/vendor software policy.
     throttle_fired: bool = False
+    # Everything below is metadata only — recorded, never gating. Measured
+    # on real consumer laptop hardware: sw_power_cap and sw_thermal_slowdown
+    # were both Active at idle (55C, 18W, card cold and doing nothing), so
+    # neither software flag is trustworthy evidence of anything.
+    power_capped: bool = False
+    sw_thermal_flagged: bool = False
+    hw_power_brake_flagged: bool = False
     clock_cv_pct: float | None = None
     clock_range_mhz: float | None = None
     quantization_step_ms: float | None = None

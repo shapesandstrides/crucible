@@ -22,8 +22,13 @@ _DTYPES = {
 
 class OracleResult(BaseModel):
     passed: bool
-    max_abs_error: float
-    max_rel_error: float
+    # None for a shape mismatch or when every element is non-finite: no
+    # error magnitude exists to report. float("inf") was used previously,
+    # but pydantic serialises inf to JSON null, and validation then rejects
+    # null for a required float — the run saved cleanly and then vanished
+    # from the catalog on load. None round-trips honestly instead.
+    max_abs_error: float | None
+    max_rel_error: float | None
     mismatch_count: int
     total_elements: int
     first_mismatch_index: int | None = None
@@ -75,11 +80,20 @@ def make_inputs(spec: ShapeSpec, seed: int, n_inputs: int = 2, device: str = "cp
 
 
 def reference_fp64(fn: Callable, inputs: list, out_dtype) -> "object":
-    """Compute fn in float64 on CPU, then cast to the target dtype."""
+    """Compute fn in float64 on CPU, then cast to the target dtype.
+
+    Fused kernels — the stated target audience — commonly return several
+    tensors (a primary output plus a saved mean, rstd, index buffer, and so
+    on). A tuple or list result is cast element-wise so that path is
+    actually reachable through check(); a bare `.to()` on a tuple would
+    raise AttributeError before compare_outputs' multi-output logic ever ran.
+    """
     import torch
 
     fp64_inputs = [t.detach().to("cpu", dtype=torch.float64) for t in inputs]
     result = fn(*fp64_inputs)
+    if isinstance(result, (tuple, list)):
+        return type(result)(r.to(out_dtype) for r in result)
     return result.to(out_dtype)
 
 
@@ -90,8 +104,8 @@ def compare_against_oracle(actual, expected, atol: float, rtol: float) -> Oracle
     if tuple(actual.shape) != tuple(expected.shape):
         return OracleResult(
             passed=False,
-            max_abs_error=float("inf"),
-            max_rel_error=float("inf"),
+            max_abs_error=None,
+            max_rel_error=None,
             mismatch_count=-1,
             total_elements=expected.numel(),
             shape_mismatch=True,
@@ -116,10 +130,10 @@ def compare_against_oracle(actual, expected, atol: float, rtol: float) -> Oracle
         passed=bool(within.all().item()),
         max_abs_error=float(abs_err[torch.isfinite(abs_err)].max().item())
         if torch.isfinite(abs_err).any()
-        else float("inf"),
+        else None,
         max_rel_error=float(rel_err[torch.isfinite(rel_err)].max().item())
         if torch.isfinite(rel_err).any()
-        else float("inf"),
+        else None,
         mismatch_count=int(mismatches.numel()),
         total_elements=int(e.numel()),
         first_mismatch_index=int(mismatches[0].item()) if mismatches.numel() else None,
@@ -144,8 +158,8 @@ def compare_outputs(actual, expected, atol: float, rtol: float) -> list[OracleRe
         return [
             OracleResult(
                 passed=False,
-                max_abs_error=float("inf"),
-                max_rel_error=float("inf"),
+                max_abs_error=None,
+                max_rel_error=None,
                 mismatch_count=-1,
                 total_elements=0,
                 shape_mismatch=True,

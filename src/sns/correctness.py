@@ -9,6 +9,7 @@ from typing import Callable
 
 from pydantic import BaseModel
 
+from sns.env import is_cuda_device
 from sns.oracle import (
     OracleResult,
     compare_against_oracle,
@@ -69,12 +70,30 @@ def check(
     max_elements: int | None = None,
     fused_ops: list[str] | None = None,
     tolerance_override: tuple[float, float] | None = None,
+    tiles=None,
 ) -> CorrectnessReport:
-    """Run a kernel across a shape space and adjudicate every output."""
+    """Run a kernel across a shape space and adjudicate every output.
+
+    ``tiles``, if given, is a `sns.tiles.TileSpace` describing the kernel's
+    declared block sizes; it is forwarded to `generate_shapes` so the shape
+    space straddles those blocks' tails, not just generic power-of-two ones.
+    Auto-discovery from ``fn`` is out of scope here: `discover_tiles` needs
+    the inner `@triton.jit` object, not the Python wrapper callers pass to
+    `check()`, so a caller who wants tile-aware generation must call
+    `discover_tiles` itself and pass the result in explicitly.
+    """
     import torch
 
+    if is_cuda_device(device) and not torch.cuda.is_available():
+        raise RuntimeError(
+            f"check() requested device={device!r} but no CUDA GPUs are "
+            "available on this machine. This is an environment problem, "
+            "not a kernel defect — a correct kernel would fail every shape "
+            "here for the same reason a broken one would."
+        )
+
     dtypes = dtypes or ["float16", "float32"]
-    specs = generate_shapes(tier, dtypes=dtypes, max_elements=max_elements)
+    specs = generate_shapes(tier, dtypes=dtypes, max_elements=max_elements, tiles=tiles)
     outcomes: list[ShapeOutcome] = []
 
     for i, spec in enumerate(specs):

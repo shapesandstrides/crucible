@@ -15,10 +15,6 @@ requires_gpu = pytest.mark.skipif(
     not torch.cuda.is_available(), reason="needs a CUDA device"
 )
 
-requires_gpu = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="needs a CUDA device"
-)
-
 
 def _spec(dims=(64, 64), dtype="float16", layout="contiguous"):
     return ShapeSpec(dims=dims, dtype=dtype, layout=layout, label="t")

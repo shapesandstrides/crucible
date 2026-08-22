@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from sns.correctness import check
+from sns.env import is_cuda_device
 from sns.metrics import (
     collect_device_info,
     collect_memory_metrics,
@@ -81,6 +82,7 @@ def run_test(
     tags: list[str] | None = None,
     root: Path | None = None,
     max_elements: int | None = None,
+    tiles=None,
 ) -> RunRecord:
     """Test a kernel and persist a run record.
 
@@ -109,28 +111,48 @@ def run_test(
         op_name=op_name,
         device=device,
         max_elements=max_elements,
+        tiles=tiles,
     )
 
     comparison = None
     dispatch = trace_dispatch(lambda: None)
+    timing_note = None
+    # A completed correctness sweep must never be discarded because timing
+    # failed or was inapplicable. compare() is CUDA-only, so an environment
+    # without CUDA (or a caller who explicitly asked for device="cpu") skips
+    # timing rather than raising, and any other timing failure is recorded
+    # as a note rather than propagated past save_run below.
     if time_it and correctness.passed:
-        canonical = generate_shapes(
-            ShapeTier.CANONICAL, dtypes=[dtypes[0]], max_elements=max_elements
-        )
-        if canonical:
-            spec = canonical[-1]
-            # Build inputs directly on the target device. Building on CPU
-            # and calling .to(device) silently re-contiguifies non-contiguous
-            # tensors, which would void that shape class entirely.
-            inputs = make_inputs(spec, seed=seed, n_inputs=n_inputs, device=device)
-            comparison = compare(
-                lambda: kernel(*inputs),
-                lambda: reference(*inputs),
-                warmup=warmup,
-                iters=iters,
-                device=_device_index(device),
+        if not is_cuda_device(device) or not torch.cuda.is_available():
+            timing_note = (
+                f"timing skipped: compare() requires a CUDA device "
+                f"(requested device={device!r}, cuda available="
+                f"{torch.cuda.is_available()})"
             )
-            dispatch = trace_dispatch(lambda: reference(*inputs))
+        else:
+            try:
+                canonical = generate_shapes(
+                    ShapeTier.CANONICAL, dtypes=[dtypes[0]], max_elements=max_elements
+                )
+                if canonical:
+                    spec = canonical[-1]
+                    # Build inputs directly on the target device. Building
+                    # on CPU and calling .to(device) silently
+                    # re-contiguifies non-contiguous tensors, which would
+                    # void that shape class entirely.
+                    inputs = make_inputs(
+                        spec, seed=seed, n_inputs=n_inputs, device=device
+                    )
+                    comparison = compare(
+                        lambda: kernel(*inputs),
+                        lambda: reference(*inputs),
+                        warmup=warmup,
+                        iters=iters,
+                        device=_device_index(device),
+                    )
+                    dispatch = trace_dispatch(lambda: reference(*inputs))
+            except Exception as e:
+                timing_note = f"timing failed: {type(e).__name__}: {e}"
 
     record = RunRecord(
         run_id=new_run_id(),
@@ -146,6 +168,7 @@ def run_test(
         timing=comparison.candidate if comparison else None,
         comparison=comparison,
         duration_s=time.time() - started,
+        notes=timing_note,
     )
     save_run(record, root=root)
     return record

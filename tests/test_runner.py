@@ -11,6 +11,26 @@ requires_gpu = pytest.mark.skipif(
 )
 
 
+def test_run_test_on_cpu_saves_the_record_instead_of_raising(tmp_path):
+    """compare() requires CUDA and used to raise before save_run ever ran,
+    throwing away a completed correctness sweep. device="cpu" with the
+    default time_it=True must save a record with timing skipped, not crash."""
+    rec = run_test(
+        lambda a, b: a + b,
+        reference=lambda a, b: a + b,
+        kernel_name="cpu_add",
+        op_name="add",
+        tier=ShapeTier.FAST,
+        dtypes=["float32"],
+        device="cpu",
+        root=tmp_path,
+    )
+    assert rec.correctness is not None and rec.correctness.passed
+    assert rec.comparison is None
+    assert rec.notes and "cuda" in rec.notes.lower()
+    assert load_run(rec.run_id, root=tmp_path).run_id == rec.run_id
+
+
 @requires_gpu
 def test_run_test_produces_a_complete_record(tmp_path):
     rec = run_test(

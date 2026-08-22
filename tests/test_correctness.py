@@ -42,6 +42,66 @@ def test_shrink_is_deterministic_for_equal_sizes():
     assert first.spec.dims in {(4, 4), (16, 1)}
 
 
+def test_a_missing_cuda_device_fails_clearly_not_as_a_kernel_defect(monkeypatch):
+    """On a host with no GPU, requesting device="cuda" (the default) used to
+    have every shape fail with 'No CUDA GPUs are available' rendered as
+    INCORRECT — an environment problem misreported as a kernel bug. Fail
+    once, upfront, with a message that names the environment."""
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+
+    with pytest.raises(RuntimeError, match="CUDA"):
+        check(
+            lambda a, b: a + b,
+            reference=lambda a, b: a + b,
+            tier=ShapeTier.FAST,
+            dtypes=["float32"],
+            op_name="add",
+        )
+
+
+def test_tiles_argument_reaches_generate_shapes_through_check():
+    """check() never accepted or forwarded tiles, so declared block sizes
+    could not change the shape space reaching a kernel through the public
+    entry point, even though generate_shapes itself already supported it.
+    Runs on CPU: no GPU needed to prove the argument gets threaded through."""
+    from sns.tiles import TileSpace
+
+    def spy_factory(collector):
+        def fn(a, b):
+            collector.append(tuple(a.shape))
+            return a + b
+        return fn
+
+    seen_without_tiles: list = []
+    check(
+        spy_factory(seen_without_tiles),
+        reference=lambda a, b: a + b,
+        tier=ShapeTier.FAST,
+        dtypes=["float32"],
+        op_name="add",
+        device="cpu",
+    )
+
+    seen_with_tiles: list = []
+    ts = TileSpace(names=["BLOCK_M"], candidates={"BLOCK_M": [96]}, source="declared")
+    check(
+        spy_factory(seen_with_tiles),
+        reference=lambda a, b: a + b,
+        tier=ShapeTier.FAST,
+        dtypes=["float32"],
+        op_name="add",
+        device="cpu",
+        tiles=ts,
+    )
+
+    assert set(seen_without_tiles) != set(seen_with_tiles), (
+        "tiles= must change the shape set that reaches the kernel"
+    )
+    assert any(s[0] % 96 == 1 for s in seen_with_tiles), (
+        "must include a shape straddling the declared block's tail"
+    )
+
+
 @requires_gpu
 def test_a_correct_kernel_passes_clean():
     r = check(
@@ -140,6 +200,39 @@ def test_kernels_actually_receive_noncontiguous_inputs():
         "no non-contiguous input ever reached the kernel — the shape class "
         "is being silently re-contiguified somewhere"
     )
+
+
+@requires_gpu
+def test_a_multi_output_kernel_passes_through_check():
+    """reference_fp64 used to call .to() on the tuple itself, raising
+    AttributeError before compare_outputs' multi-output path ever ran.
+    Fused kernels are the stated target audience, and they are exactly
+    the ones that return several tensors."""
+    r = check(
+        lambda a, b: (a + b, a * b),
+        reference=lambda a, b: (a + b, a * b),
+        tier=ShapeTier.FAST,
+        dtypes=["float32"],
+        op_name="add",
+    )
+    assert r.passed, f"multi-output kernel failed: {r.outcomes[0].error}"
+
+
+@requires_gpu
+def test_a_bug_in_a_secondary_output_is_caught():
+    """A wrong second tensor — a saved mean or rstd — must fail the check."""
+
+    def broken(a, b):
+        return (a + b, torch.full_like(a, 99.0))
+
+    r = check(
+        broken,
+        reference=lambda a, b: (a + b, a * b),
+        tier=ShapeTier.FAST,
+        dtypes=["float32"],
+        op_name="add",
+    )
+    assert not r.passed
 
 
 @requires_gpu

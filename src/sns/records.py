@@ -11,7 +11,7 @@ import time
 import uuid
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from sns.correctness import CorrectnessReport
 from sns.metrics import DeviceInfo, DispatchTrace, MemoryMetrics, RuntimeContext
@@ -99,11 +99,24 @@ def save_run(record: RunRecord, root: Path | None = None) -> Path:
     return p
 
 
+class CorruptRecordError(RuntimeError):
+    """A stored run file failed schema validation.
+
+    Distinct from FileNotFoundError so a caller (the CLI in particular)
+    can tell "no such run" from "this run's JSON is corrupt or from an
+    incompatible schema version" instead of letting a bare ValidationError
+    traceback out.
+    """
+
+
 def load_run(run_id: str, root: Path | None = None) -> RunRecord:
     p = _runs_dir(root) / f"{run_id}.json"
     if not p.exists():
         raise FileNotFoundError(f"no run {run_id!r} under {_runs_dir(root)}")
-    return RunRecord.model_validate_json(p.read_text())
+    try:
+        return RunRecord.model_validate_json(p.read_text())
+    except ValidationError as e:
+        raise CorruptRecordError(f"run record at {p} failed validation: {e}") from e
 
 
 def list_runs(root: Path | None = None, limit: int | None = None) -> list[RunRecord]:

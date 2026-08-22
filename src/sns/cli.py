@@ -13,7 +13,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from sns.records import list_runs, load_run
+from sns.records import CorruptRecordError, list_runs, load_run
 
 app = typer.Typer(add_completion=False, help="Honest correctness and timing for kernels.")
 # Rich auto-detects terminal width and falls back to a narrow default when
@@ -75,6 +75,9 @@ def show(run_id: str, root: Path = ROOT):
     except FileNotFoundError:
         console.print(f"[red]run not found:[/red] {run_id}")
         raise typer.Exit(1)
+    except CorruptRecordError as e:
+        console.print(f"[red]run record is corrupt:[/red] {e}")
+        raise typer.Exit(1)
 
     console.print(f"[bold]{r.kernel_name}[/bold]  {r.run_id}")
     console.print(f"  gpu       {r.device.gpu_name} (sm_{(r.device.compute_capability or '').replace('.', '')})")
@@ -115,6 +118,9 @@ def compare(run_a: str, run_b: str, root: Path = ROOT):
         a, b = load_run(run_a, root=root), load_run(run_b, root=root)
     except FileNotFoundError as e:
         console.print(f"[red]run not found:[/red] {e}")
+        raise typer.Exit(1)
+    except CorruptRecordError as e:
+        console.print(f"[red]run record is corrupt:[/red] {e}")
         raise typer.Exit(1)
 
     if (a.device.gpu_name, a.device.compute_capability, a.device.torch_version, a.device.triton_version) != (
