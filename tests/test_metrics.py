@@ -25,6 +25,19 @@ def test_models_tolerate_missing_fields():
     assert DispatchTrace().kernels == []
 
 
+def test_device_info_degrades_without_a_gpu(monkeypatch):
+    """A machine with no GPU must still yield a record. Every test in this
+    file is @requires_gpu, so nothing else covers this path — and our CI
+    runner has no GPU."""
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    d = collect_device_info()
+
+    assert d.gpu_name is None
+    assert d.sm_count is None
+    # Toolchain versions do not need a device and must still be present.
+    assert d.torch_version
+
+
 @requires_gpu
 def test_device_info_is_populated():
     d = collect_device_info()

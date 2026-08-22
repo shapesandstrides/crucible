@@ -67,9 +67,7 @@ def collect_device_info(device: int = 0) -> DeviceInfo:
 
     from sns.env import arch_family
 
-    p = torch.cuda.get_device_properties(device)
-    cap = f"{p.major}.{p.minor}"
-
+    # Toolchain versions are available with or without a device.
     triton_version = None
     try:
         import triton
@@ -77,6 +75,22 @@ def collect_device_info(device: int = 0) -> DeviceInfo:
         triton_version = triton.__version__
     except ImportError:
         pass
+
+    info = DeviceInfo(
+        torch_version=torch.__version__,
+        cuda_version=torch.version.cuda,
+        cudnn_version=torch.backends.cudnn.version(),
+        triton_version=triton_version,
+    )
+
+    # Everything below needs a device. A machine without one still gets a
+    # valid record with empty hardware fields — a missing metric is data, a
+    # crash is a lost run.
+    if not torch.cuda.is_available():
+        return info
+
+    p = torch.cuda.get_device_properties(device)
+    cap = f"{p.major}.{p.minor}"
 
     driver_version = None
     pcie_gen = None
@@ -92,22 +106,17 @@ def collect_device_info(device: int = 0) -> DeviceInfo:
     except Exception:
         pass
 
-    return DeviceInfo(
-        gpu_name=p.name,
-        compute_capability=cap,
-        arch_family=arch_family(cap),
-        sm_count=p.multi_processor_count,
-        total_memory_mb=p.total_memory // 1024**2,
-        l2_cache_bytes=getattr(p, "L2_cache_size", None),
-        max_threads_per_sm=getattr(p, "max_threads_per_multi_processor", None),
-        warp_size=getattr(p, "warp_size", None),
-        torch_version=torch.__version__,
-        cuda_version=torch.version.cuda,
-        cudnn_version=torch.backends.cudnn.version(),
-        triton_version=triton_version,
-        driver_version=driver_version,
-        pcie_gen=pcie_gen,
-    )
+    info.gpu_name = p.name
+    info.compute_capability = cap
+    info.arch_family = arch_family(cap)
+    info.sm_count = p.multi_processor_count
+    info.total_memory_mb = p.total_memory // 1024**2
+    info.l2_cache_bytes = getattr(p, "L2_cache_size", None)
+    info.max_threads_per_sm = getattr(p, "max_threads_per_multi_processor", None)
+    info.warp_size = getattr(p, "warp_size", None)
+    info.driver_version = driver_version
+    info.pcie_gen = pcie_gen
+    return info
 
 
 def collect_memory_metrics(device: int = 0) -> MemoryMetrics:
