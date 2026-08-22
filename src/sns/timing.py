@@ -4,16 +4,19 @@ import math
 from typing import Callable
 
 from sns.clocks import ClockPolicy, UnlockedClockPolicy, assign_tier
-from sns.env import smi_query_float, throttle_snapshot
+from sns.env import throttle_snapshot
 from sns.stats import bootstrap_ci, cv_percent, percentile, ratio_ci
+from sns.telemetry import ClockSampler
 from sns.types import ComparisonResult, TimingResult
 
 MIN_ITERS = 30
 DEFAULT_WARMUP = 200
 MIN_DURATION_US = 10.0
 MIN_FLUSH_BYTES = 256 * 1024 * 1024
-# nvidia-smi is a subprocess call costing tens of ms; sampling it once per
-# iteration would perturb the host duty cycle we are trying to observe.
+# Historical cap from when clock sampling meant shelling out to nvidia-smi
+# (tens of ms per call). NVML samples in-process at microsecond latency, so
+# the cap is no longer needed in measure() — kept here only because
+# clock_sample_stride is still a correct, cheap, separately-tested utility.
 MAX_CLOCK_SAMPLES = 8
 
 
@@ -66,6 +69,13 @@ def measure(
     """Time a callable honestly.
 
     Returns an interval and a quality tier, never a bare number.
+
+    Known limitation: the reported CI is a bootstrap over samples within a
+    single measurement window, so it captures sampling error inside that
+    window but not run-to-run variability between windows. On unlocked
+    hardware the cross-run spread can exceed the reported interval by orders
+    of magnitude — scripts/validate_timing.py measures exactly this. Folding
+    between-window variance into Tier B intervals is planned for Phase 1.
     """
     import torch
 
@@ -74,9 +84,11 @@ def measure(
     if not torch.cuda.is_available():
         raise RuntimeError("measure() requires a CUDA device")
 
+    torch.cuda.set_device(device)
     policy = policy or UnlockedClockPolicy()
     dev = torch.device(f"cuda:{device}")
     scratch = l2_flush_buffer(dev) if flush_l2 else None
+    sampler = ClockSampler(device)
 
     policy.apply()
     # restore() runs in the finally below and clears policy.locked, so capture
@@ -105,14 +117,13 @@ def measure(
         starts = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
         ends = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
 
-        throttle_before = throttle_snapshot()
+        throttle_before = throttle_snapshot(device)
         clock_samples: list[float] = []
+        throttled_during = False
 
-        # Sampling the clock costs an nvidia-smi subprocess (tens of ms), so take a
-        # bounded number of evenly-spaced samples rather than one per iteration.
-        # Sampling every iteration would perturb the duty cycle we are measuring.
-        clock_sample_every = clock_sample_stride(iters)
-
+        # NVML runs in-process at microsecond latency, unlike the nvidia-smi
+        # subprocess this used to shell out to, so the old bounded-sample cap
+        # (clock_sample_stride) is unnecessary here — sample every iteration.
         for i in range(iters):
             if scratch is not None:
                 scratch.zero_()
@@ -120,20 +131,26 @@ def measure(
             for _ in range(inner_reps):
                 fn()
             ends[i].record()
-            if i % clock_sample_every == 0:
-                sm_clock = smi_query_float("clocks.sm", device)
-                if sm_clock is not None:
-                    clock_samples.append(sm_clock)
+            sm_clock = sampler.sample_clock_mhz()
+            if sm_clock is not None:
+                clock_samples.append(sm_clock)
+            if sampler.throttled_now():
+                throttled_during = True
 
         torch.cuda.synchronize()
-        throttle_after = throttle_snapshot()
+        throttle_after = throttle_snapshot(device)
     finally:
         policy.restore()
+        sampler.shutdown()
 
     samples = [
         starts[i].elapsed_time(ends[i]) / inner_reps for i in range(iters)
     ]
-    throttle_fired = throttle_before != throttle_after
+    throttle_fired = (
+        throttle_before != throttle_after
+        or any(v == "Active" for v in {**throttle_before, **throttle_after}.values())
+        or bool(throttled_during)
+    )
     tier = assign_tier(was_locked, clock_samples, throttle_fired)
     ci_lo, ci_hi = bootstrap_ci(samples)
 

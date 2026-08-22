@@ -75,8 +75,8 @@ def smi_query_float(field: str, index: int = 0) -> float | None:
         return None
 
 
-def throttle_snapshot() -> dict[str, str | None]:
-    return {name: smi_query(field) for name, field in THROTTLE_FIELDS.items()}
+def throttle_snapshot(index: int = 0) -> dict[str, str | None]:
+    return {name: smi_query(field, index) for name, field in THROTTLE_FIELDS.items()}
 
 
 def capture_fingerprint(device_index: int = 0) -> EnvironmentFingerprint:

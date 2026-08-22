@@ -129,3 +129,7 @@ def test_tier_a_boundary_at_exactly_30_mhz_range():
 def test_tier_c_boundary_cv_exactly_at_threshold_stays_out_of_c():
     """cv_percent([97, 103]) is exactly 3.0; the C test is strict >, so this is B."""
     assert assign_tier(False, [97.0, 103.0], throttle_fired=False) is MeasurementTier.B
+
+
+def test_a_throttled_locked_gpu_is_never_tier_a():
+    assert assign_tier(True, [1100.0] * 8, throttle_fired=True) is MeasurementTier.C

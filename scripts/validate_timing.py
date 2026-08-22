@@ -68,48 +68,73 @@ def main():
     print(f"\n{args.runs} runs, {gap:.1f}s apart, ~{args.minutes:.0f} min total\n")
 
     runs = []
-    for i in range(args.runs):
-        r = measure(
-            lambda: a @ a,
-            warmup=args.warmup,
-            iters=args.iters,
-            policy=policy,
-        )
-        runs.append(r)
-        print(
-            f"  run {i + 1:2d}/{args.runs}  median {r.median_ms:.5f} ms  "
-            f"CI [{r.ci95_lo_ms:.5f}, {r.ci95_hi_ms:.5f}]  "
-            f"width {r.ci95_hi_ms - r.ci95_lo_ms:.5f}  tier {r.tier.value}"
-        )
-        if i < args.runs - 1:
-            time.sleep(gap)
+    error = None
+    try:
+        for i in range(args.runs):
+            r = measure(
+                lambda: a @ a,
+                warmup=args.warmup,
+                iters=args.iters,
+                policy=policy,
+            )
+            runs.append(r)
+            print(
+                f"  run {i + 1:2d}/{args.runs}  median {r.median_ms:.5f} ms  "
+                f"CI [{r.ci95_lo_ms:.5f}, {r.ci95_hi_ms:.5f}]  "
+                f"width {r.ci95_hi_ms - r.ci95_lo_ms:.5f}  tier {r.tier.value}"
+            )
+            if i < args.runs - 1:
+                time.sleep(gap)
+    except Exception as e:
+        error = e
+        print(f"\nRUN FAILED after {len(runs)}/{args.runs} completed runs: {e!r}")
 
-    medians = [r.median_ms for r in runs]
-    spread = max(medians) - min(medians)
-    widest_ci = max(r.ci95_hi_ms - r.ci95_lo_ms for r in runs)
-    tiers = {r.tier.value for r in runs}
-    passed = spread <= widest_ci and MeasurementTier.C.value not in tiers
+    # A failure partway through must not discard the runs already completed:
+    # a transient relock failure at run 37 of 50 should not cost the other 36.
+    if len(runs) >= 2:
+        medians = [r.median_ms for r in runs]
+        spread = max(medians) - min(medians)
+        widest_ci = max(r.ci95_hi_ms - r.ci95_lo_ms for r in runs)
+        tiers = {r.tier.value for r in runs}
+        passed = (
+            error is None
+            and spread <= widest_ci
+            and MeasurementTier.C.value not in tiers
+        )
+        report = {
+            "fingerprint": fingerprint.model_dump(),
+            "config": vars(args),
+            "runs": [r.model_dump() for r in runs],
+            "median_of_medians_ms": statistics.median(medians),
+            "cross_run_spread_ms": spread,
+            "widest_within_run_ci_ms": widest_ci,
+            "cross_run_cv_pct": round(
+                100 * statistics.pstdev(medians) / statistics.mean(medians), 4
+            ),
+            "tiers_observed": sorted(tiers),
+            "passed": passed,
+            "error": repr(error) if error is not None else None,
+        }
+    else:
+        passed = False
+        report = {
+            "fingerprint": fingerprint.model_dump(),
+            "config": vars(args),
+            "runs": [r.model_dump() for r in runs],
+            "passed": passed,
+            "error": repr(error) if error is not None else None,
+        }
 
-    report = {
-        "fingerprint": fingerprint.model_dump(),
-        "config": vars(args),
-        "runs": [r.model_dump() for r in runs],
-        "median_of_medians_ms": statistics.median(medians),
-        "cross_run_spread_ms": spread,
-        "widest_within_run_ci_ms": widest_ci,
-        "cross_run_cv_pct": round(
-            100 * statistics.pstdev(medians) / statistics.mean(medians), 4
-        ),
-        "tiers_observed": sorted(tiers),
-        "passed": passed,
-    }
     with open(args.out, "w") as f:
         json.dump(report, f, indent=2)
 
     print("\n" + "=" * 64)
-    print(f"  cross-run spread      {spread:.5f} ms")
-    print(f"  widest within-run CI  {widest_ci:.5f} ms")
-    print(f"  tiers observed        {sorted(tiers)}")
+    if len(runs) >= 2:
+        print(f"  cross-run spread      {report['cross_run_spread_ms']:.5f} ms")
+        print(f"  widest within-run CI  {report['widest_within_run_ci_ms']:.5f} ms")
+        print(f"  tiers observed        {report['tiers_observed']}")
+    if error is not None:
+        print(f"  ERROR                 {error!r}")
     print(f"  ACCEPTANCE: {'PASS' if passed else 'FAIL'}")
     print("=" * 64)
     print(f"\nreport -> {args.out}")

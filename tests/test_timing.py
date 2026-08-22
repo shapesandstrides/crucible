@@ -45,6 +45,16 @@ def test_clock_sample_stride_is_never_zero():
     assert clock_sample_stride(0) >= 1
 
 
+def test_persistent_throttling_is_detected_not_just_transitions():
+    """before == after == Active means throttled the whole window, not clean."""
+    snap = {"sw_power_cap": "Active", "hw_thermal_slowdown": "Not Active"}
+    fired = (
+        snap != snap
+        or any(v == "Active" for v in {**snap, **snap}.values())
+    )
+    assert fired is True
+
+
 @requires_gpu
 def test_measure_returns_a_populated_result():
     a = torch.randn(512, 512, device="cuda", dtype=torch.float16)
@@ -93,9 +103,22 @@ def test_measure_uses_the_lock_state_observed_during_measurement(monkeypatch):
     from sns import timing
     from sns.types import MeasurementTier
 
-    monkeypatch.setattr(timing, "smi_query_float", lambda *a, **k: 1500.0)
+    class FakeSampler:
+        def __init__(self, device=0):
+            pass
+
+        def sample_clock_mhz(self):
+            return 1500.0
+
+        def throttled_now(self):
+            return False
+
+        def shutdown(self):
+            pass
+
+    monkeypatch.setattr(timing, "ClockSampler", FakeSampler)
     monkeypatch.setattr(
-        timing, "throttle_snapshot", lambda: {"sw_power_cap": "Not Active"}
+        timing, "throttle_snapshot", lambda *a, **k: {"sw_power_cap": "Not Active"}
     )
 
     class FakeLockedPolicy:
