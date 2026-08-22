@@ -6,7 +6,7 @@ from typing import Callable
 from sns.clocks import ClockPolicy, UnlockedClockPolicy, assign_tier
 from sns.env import (
     hw_power_brake_active,
-    hw_thermal_throttle_active,
+    hw_throttle_active,
     power_cap_active,
     sw_thermal_throttle_active,
     throttle_snapshot,
@@ -166,15 +166,12 @@ def measure(
     samples = [
         starts[i].elapsed_time(ends[i]) / inner_reps for i in range(iters)
     ]
-    # Only the hardware thermal assertion gates the tier — every software
-    # throttle flag (sw_power_cap, sw_thermal_slowdown) was measured Active
-    # on real laptop hardware at idle, 55C, 18W, so none of them are
-    # trustworthy evidence. They are still recorded below, as metadata.
-    hw_thermal_throttled = (
-        hw_thermal_throttle_active(throttle_before)
-        or hw_thermal_throttle_active(throttle_after)
-        or bool(throttled_during)
-    )
+    # Hardware-asserted throttling gates the tier; driver-reported software
+    # flags (sw_power_cap, sw_thermal_slowdown) do not, because they were
+    # measured Active on real laptop hardware at idle, 55C, 18W, so none of
+    # them are trustworthy evidence. They are still recorded below, as
+    # metadata.
+    hw_throttled = hw_throttle_active(throttle_before, throttle_after, throttled_during)
     power_capped = power_cap_active(throttle_before) or power_cap_active(throttle_after)
     sw_thermal_flagged = (
         sw_thermal_throttle_active(throttle_before)
@@ -183,7 +180,7 @@ def measure(
     hw_power_brake_flagged = (
         hw_power_brake_active(throttle_before) or hw_power_brake_active(throttle_after)
     )
-    tier = assign_tier(was_locked, clock_samples, hw_thermal_throttled)
+    tier = assign_tier(was_locked, clock_samples, hw_throttled)
     ci_lo, ci_hi = bootstrap_ci(samples)
 
     step = quantization_step(samples)
@@ -204,7 +201,7 @@ def measure(
         tier=tier,
         warmup=warmup,
         inner_reps=inner_reps,
-        throttle_fired=hw_thermal_throttled,
+        throttle_fired=hw_throttled,
         power_capped=power_capped,
         sw_thermal_flagged=sw_thermal_flagged,
         hw_power_brake_flagged=hw_power_brake_flagged,
@@ -233,7 +230,7 @@ def _interleaved_samples(
     _compare_impl, which takes the lists this returns and needs no GPU.
 
     Returns (candidate_samples, baseline_samples, inner_reps, tier,
-    hw_thermal_throttled, power_capped, sw_thermal_flagged,
+    hw_throttled, power_capped, sw_thermal_flagged,
     hw_power_brake_flagged, clock_samples).
     """
     import torch
@@ -336,15 +333,12 @@ def _interleaved_samples(
         b_starts[i].elapsed_time(b_ends[i]) / inner_reps for i in range(iters)
     ]
 
-    # Only the hardware thermal assertion gates the tier — every software
-    # throttle flag (sw_power_cap, sw_thermal_slowdown) was measured Active
-    # on real laptop hardware at idle, 55C, 18W, so none of them are
-    # trustworthy evidence. They are still recorded below, as metadata.
-    hw_thermal_throttled = (
-        hw_thermal_throttle_active(throttle_before)
-        or hw_thermal_throttle_active(throttle_after)
-        or bool(throttled_during)
-    )
+    # Hardware-asserted throttling gates the tier; driver-reported software
+    # flags (sw_power_cap, sw_thermal_slowdown) do not, because they were
+    # measured Active on real laptop hardware at idle, 55C, 18W, so none of
+    # them are trustworthy evidence. They are still recorded below, as
+    # metadata.
+    hw_throttled = hw_throttle_active(throttle_before, throttle_after, throttled_during)
     power_capped = power_cap_active(throttle_before) or power_cap_active(throttle_after)
     sw_thermal_flagged = (
         sw_thermal_throttle_active(throttle_before)
@@ -354,14 +348,14 @@ def _interleaved_samples(
         hw_power_brake_active(throttle_before) or hw_power_brake_active(throttle_after)
     )
     # Both sides share one measurement window, so they share one tier.
-    tier = assign_tier(was_locked, clock_samples, hw_thermal_throttled)
+    tier = assign_tier(was_locked, clock_samples, hw_throttled)
 
     return (
         candidate_samples,
         baseline_samples,
         inner_reps,
         tier,
-        hw_thermal_throttled,
+        hw_throttled,
         power_capped,
         sw_thermal_flagged,
         hw_power_brake_flagged,
@@ -483,7 +477,7 @@ def compare(
         baseline_samples,
         inner_reps,
         tier,
-        hw_thermal_throttled,
+        hw_throttled,
         power_capped,
         sw_thermal_flagged,
         hw_power_brake_flagged,
@@ -505,7 +499,7 @@ def compare(
         tier=tier,
         warmup=warmup,
         inner_reps=inner_reps,
-        throttle_fired=hw_thermal_throttled,
+        throttle_fired=hw_throttled,
         power_capped=power_capped,
         sw_thermal_flagged=sw_thermal_flagged,
         hw_power_brake_flagged=hw_power_brake_flagged,

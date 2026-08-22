@@ -6,31 +6,31 @@ from sns.types import MeasurementTier
 
 
 def test_throttle_forces_tier_c():
-    assert assign_tier(True, [1500.0] * 10, hw_thermal_throttled=True) is MeasurementTier.C
+    assert assign_tier(True, [1500.0] * 10, hw_throttled=True) is MeasurementTier.C
 
 
 def test_high_clock_variance_forces_tier_c():
     """Measured on an RTX 3060 laptop: 5.1% CV under load, throttle flags silent."""
     unstable = [1282.0, 1777.0, 1500.0, 1777.0, 1282.0]
-    assert assign_tier(True, unstable, hw_thermal_throttled=False) is MeasurementTier.C
+    assert assign_tier(True, unstable, hw_throttled=False) is MeasurementTier.C
 
 
 def test_locked_and_stable_is_tier_a():
-    assert assign_tier(True, [1500.0] * 10, hw_thermal_throttled=False) is MeasurementTier.A
+    assert assign_tier(True, [1500.0] * 10, hw_throttled=False) is MeasurementTier.A
 
 
 def test_locked_but_wide_range_is_not_tier_a():
     """Lock reported success but the clock moved 60 MHz: not trustworthy."""
     drifting = [1500.0, 1530.0, 1560.0, 1540.0, 1520.0]
-    assert assign_tier(True, drifting, hw_thermal_throttled=False) is MeasurementTier.B
+    assert assign_tier(True, drifting, hw_throttled=False) is MeasurementTier.B
 
 
 def test_unlocked_but_stable_is_tier_b():
-    assert assign_tier(False, [1500.0] * 10, hw_thermal_throttled=False) is MeasurementTier.B
+    assert assign_tier(False, [1500.0] * 10, hw_throttled=False) is MeasurementTier.B
 
 
 def test_no_clock_samples_is_tier_b_when_unlocked():
-    assert assign_tier(False, [], hw_thermal_throttled=False) is MeasurementTier.B
+    assert assign_tier(False, [], hw_throttled=False) is MeasurementTier.B
 
 
 def test_unlocked_policy_is_a_no_op_and_reports_unlocked():
@@ -118,35 +118,35 @@ def test_locked_policy_verifies_the_power_cap_too():
 
 def test_locked_with_no_clock_samples_is_tier_b_not_a():
     """Absence of clock evidence is not stability."""
-    assert assign_tier(True, [], hw_thermal_throttled=False) is MeasurementTier.B
+    assert assign_tier(True, [], hw_throttled=False) is MeasurementTier.B
 
 
 def test_tier_a_boundary_at_exactly_30_mhz_range():
     """range == 30.0 is inclusive, so this is A."""
-    assert assign_tier(True, [1500.0, 1530.0], hw_thermal_throttled=False) is MeasurementTier.A
+    assert assign_tier(True, [1500.0, 1530.0], hw_throttled=False) is MeasurementTier.A
 
 
 def test_tier_c_boundary_cv_exactly_at_threshold_stays_out_of_c():
     """cv_percent([97, 103]) is exactly 3.0; the C test is strict >, so this is B."""
-    assert assign_tier(False, [97.0, 103.0], hw_thermal_throttled=False) is MeasurementTier.B
+    assert assign_tier(False, [97.0, 103.0], hw_throttled=False) is MeasurementTier.B
 
 
 def test_a_throttled_locked_gpu_is_never_tier_a():
-    assert assign_tier(True, [1100.0] * 8, hw_thermal_throttled=True) is MeasurementTier.C
+    assert assign_tier(True, [1100.0] * 8, hw_throttled=True) is MeasurementTier.C
 
 
 def test_power_capping_alone_is_not_disqualifying():
     """Every GPU under load sits at its power limit. Treating that as
     instability would mean the tool never renders a verdict at all."""
     steady = [1500.0] * 8
-    assert assign_tier(False, steady, hw_thermal_throttled=False) is MeasurementTier.B
+    assert assign_tier(False, steady, hw_throttled=False) is MeasurementTier.B
 
 
 def test_thermal_throttling_is_disqualifying():
-    assert assign_tier(False, [1500.0] * 8, hw_thermal_throttled=True) is MeasurementTier.C
+    assert assign_tier(False, [1500.0] * 8, hw_throttled=True) is MeasurementTier.C
 
 
 def test_software_thermal_flags_do_not_disqualify():
     """Measured on an RTX 3060 laptop: sw_thermal_slowdown reads Active at
     idle, 55C, 18W. Only the hardware assertion is trustworthy."""
-    assert assign_tier(False, [1500.0] * 8, hw_thermal_throttled=False) is MeasurementTier.B
+    assert assign_tier(False, [1500.0] * 8, hw_throttled=False) is MeasurementTier.B

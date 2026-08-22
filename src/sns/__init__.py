@@ -6,6 +6,7 @@ from sns.tiles import discover_tiles
 from sns.timing import compare, measure
 from sns.types import (
     ComparisonResult,
+    EnvironmentFingerprint,
     MeasurementTier,
     TimingResult,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "save_run",
     "ComparisonResult",
     "CorrectnessReport",
+    "EnvironmentFingerprint",
     "MeasurementTier",
     "RunRecord",
     "ShapeSpec",

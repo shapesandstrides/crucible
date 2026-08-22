@@ -71,6 +71,26 @@ def test_sw_thermal_slowdown_alone_is_not_hw_thermal_throttling():
     assert hw_thermal_throttle_active(snap) is False
 
 
+def test_persistent_hw_power_brake_is_detected_not_just_transitions():
+    """before == after == Active means throttled the whole window, not
+    clean. hw_power_brake_slowdown is a hardware assertion by the same
+    naming and mechanism as hw_thermal_slowdown, so it must gate the same
+    way — measured Not Active throughout on real hardware, including
+    under sustained load."""
+    from sns.env import hw_throttle_active
+
+    snap = {"sw_power_cap": "Not Active", "hw_power_brake_slowdown": "Active"}
+    assert hw_throttle_active(snap, snap) is True
+
+
+def test_hw_power_brake_gates_even_when_hw_thermal_is_clean():
+    from sns.env import hw_throttle_active
+
+    before = {"hw_thermal_slowdown": "Not Active", "hw_power_brake_slowdown": "Not Active"}
+    after = {"hw_thermal_slowdown": "Not Active", "hw_power_brake_slowdown": "Active"}
+    assert hw_throttle_active(before, after) is True
+
+
 @requires_gpu
 def test_measure_returns_a_populated_result():
     a = torch.randn(512, 512, device="cuda", dtype=torch.float16)
