@@ -208,9 +208,8 @@ def _interleaved_samples(
 ):
     """Run the interleaved measurement loop and return raw ingredients.
 
-    Split out from compare() so the zero-median guard and CI/tier plumbing
-    in compare() can be exercised without a GPU, by monkeypatching this
-    function directly (see test_compare_rejects_a_zero_median_candidate).
+    This is the GPU half of compare(); the guard/CI/ratio logic lives in
+    _compare_impl, which takes the lists this returns and needs no GPU.
 
     Returns (candidate_samples, baseline_samples, inner_reps, tier,
     throttle_fired, clock_samples).
@@ -265,10 +264,7 @@ def _interleaved_samples(
         clock_samples: list[float] = []
         throttled_during = False
 
-        # Fixed A-then-B order within an iteration is fine: the drift being
-        # cancelled is between iterations, not within one. Flushing L2 before
-        # each side's record() lets both sides start equally cold.
-        for i in range(iters):
+        def _run_candidate(i: int) -> None:
             if scratch is not None:
                 scratch.zero_()
             c_starts[i].record()
@@ -276,12 +272,28 @@ def _interleaved_samples(
                 candidate_fn()
             c_ends[i].record()
 
+        def _run_baseline(i: int) -> None:
             if scratch is not None:
                 scratch.zero_()
             b_starts[i].record()
             for _ in range(inner_reps):
                 baseline_fn()
             b_ends[i].record()
+
+        for i in range(iters):
+            # Alternate which side goes first. A fixed order would hand any
+            # second-position advantage — residual boost state, warmer
+            # caches — entirely to one side. Flipping splits it evenly, so
+            # it cancels in the ratio rather than accumulating in it. Each
+            # side always records into its own event arrays regardless of
+            # which runs first, so the candidate/baseline identity of a
+            # sample never depends on physical run order.
+            if i % 2 == 0:
+                _run_candidate(i)
+                _run_baseline(i)
+            else:
+                _run_baseline(i)
+                _run_candidate(i)
 
             sm_clock = sampler.sample_clock_mhz()
             if sm_clock is not None:
@@ -320,56 +332,24 @@ def _interleaved_samples(
     )
 
 
-def compare(
-    candidate_fn: Callable[[], object],
-    baseline_fn: Callable[[], object],
+def _compare_impl(
+    candidate_samples: list[float],
+    baseline_samples: list[float],
     *,
-    warmup: int = DEFAULT_WARMUP,
-    iters: int = MIN_ITERS,
-    device: int = 0,
-    flush_l2: bool = True,
-    policy: ClockPolicy | None = None,
-    min_duration_us: float = MIN_DURATION_US,
+    tier,
+    warmup: int,
+    inner_reps: int,
+    throttle_fired: bool = False,
+    clock_samples: list[float] | None = None,
 ) -> ComparisonResult:
-    """Measure a candidate against a baseline, interleaved.
+    """Turn two sample lists sharing one window into a ComparisonResult.
 
-    The two callables alternate inside a single measurement window rather
-    than running as two separate windows. GPU clocks drift, and a drift
-    between two sequential windows lands entirely in the ratio: measured on
-    an unlocked laptop, comparing identical work that way gave a p90 error
-    of 106% and a worst case of 141%. Interleaved, the same comparison gave
-    a p90 error of 1.0%.
-
-    The baseline is still measured fresh on every call and never cached.
-    Interleaving strengthens that rule rather than replacing it: the two
-    sides now share not just a process but a thermal and clock state.
+    Pure arithmetic on plain lists: the zero-median guard, the CI floor, and
+    the speedup ratio all live here so they can be exercised on CPU, with no
+    GPU and no mocking. This is the product's central claim in code form —
+    it needs to run in every CI environment, not just the ones with a GPU.
     """
-    import torch
-
-    if iters < MIN_ITERS:
-        raise ValueError(f"iters must be at least {MIN_ITERS}, got {iters}")
-    if not torch.cuda.is_available():
-        raise RuntimeError("compare() requires a CUDA device")
-
-    policy = policy or UnlockedClockPolicy()
-
-    (
-        candidate_samples,
-        baseline_samples,
-        inner_reps,
-        tier,
-        throttle_fired,
-        clock_samples,
-    ) = _interleaved_samples(
-        candidate_fn,
-        baseline_fn,
-        warmup=warmup,
-        iters=iters,
-        device=device,
-        flush_l2=flush_l2,
-        policy=policy,
-        min_duration_us=min_duration_us,
-    )
+    clock_samples = clock_samples or []
 
     if percentile(candidate_samples, 0.5) <= 0:
         raise ValueError(
@@ -415,4 +395,70 @@ def compare(
         speedup=baseline.median_ms / candidate.median_ms,
         speedup_ci_lo=lo,
         speedup_ci_hi=hi,
+    )
+
+
+def compare(
+    candidate_fn: Callable[[], object],
+    baseline_fn: Callable[[], object],
+    *,
+    warmup: int = DEFAULT_WARMUP,
+    iters: int = MIN_ITERS,
+    device: int = 0,
+    flush_l2: bool = True,
+    policy: ClockPolicy | None = None,
+    min_duration_us: float = MIN_DURATION_US,
+) -> ComparisonResult:
+    """Measure a candidate against a baseline, interleaved.
+
+    The two callables alternate inside a single measurement window rather
+    than running as two separate windows. GPU clocks drift, and a drift
+    between two sequential windows lands entirely in the ratio: measured on
+    an unlocked laptop, comparing identical work that way gave a p90 error
+    of 106% and a worst case of 141%. Interleaved, the same comparison gave
+    a p90 error of 1.0%.
+
+    The baseline is still measured fresh on every call and never cached.
+    Interleaving strengthens that rule rather than replacing it: the two
+    sides now share not just a process but a thermal and clock state.
+
+    This is a thin CUDA-gated shell: it collects the raw samples via
+    _interleaved_samples and hands them to _compare_impl, which does the
+    actual guard/CI/ratio logic and needs no GPU to test.
+    """
+    import torch
+
+    if iters < MIN_ITERS:
+        raise ValueError(f"iters must be at least {MIN_ITERS}, got {iters}")
+    if not torch.cuda.is_available():
+        raise RuntimeError("compare() requires a CUDA device")
+
+    policy = policy or UnlockedClockPolicy()
+
+    (
+        candidate_samples,
+        baseline_samples,
+        inner_reps,
+        tier,
+        throttle_fired,
+        clock_samples,
+    ) = _interleaved_samples(
+        candidate_fn,
+        baseline_fn,
+        warmup=warmup,
+        iters=iters,
+        device=device,
+        flush_l2=flush_l2,
+        policy=policy,
+        min_duration_us=min_duration_us,
+    )
+
+    return _compare_impl(
+        candidate_samples,
+        baseline_samples,
+        tier=tier,
+        warmup=warmup,
+        inner_reps=inner_reps,
+        throttle_fired=throttle_fired,
+        clock_samples=clock_samples,
     )

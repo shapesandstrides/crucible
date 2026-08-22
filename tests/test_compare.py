@@ -44,25 +44,36 @@ def test_comparison_tier_a_requires_both_sides_locked():
     assert c.tier is MeasurementTier.A
 
 
-@requires_gpu
-def test_compare_rejects_a_zero_median_candidate(monkeypatch):
+def test_compare_rejects_a_zero_median_candidate():
     """A 0 ms candidate must fail loudly, not raise ZeroDivisionError.
 
-    compare() now runs its own interleaved measurement loop rather than
-    delegating to measure(), so the seam to mock is _interleaved_samples,
-    the helper that does the actual GPU timing. This still exercises the
-    zero-median guard in compare() in isolation from real timing noise.
+    _compare_impl is the pure half of compare() — plain lists in, a
+    ComparisonResult out, no GPU and no mocking required. This runs on
+    CPU-only CI, unlike the old version of this test which needed a GPU
+    just to satisfy compare()'s inline torch.cuda.is_available() check.
     """
-    from sns import timing
-
-    monkeypatch.setattr(
-        timing,
-        "_interleaved_samples",
-        lambda *a, **k: ([0.0] * 30, [1.0] * 30, 1, MeasurementTier.B, False, []),
-    )
+    from sns.timing import _compare_impl
 
     with pytest.raises(ValueError, match="0 ms"):
-        timing.compare(lambda: None, lambda: None)
+        _compare_impl(
+            [0.0] * 30, [1.0] * 30,
+            tier=MeasurementTier.B, warmup=200, inner_reps=1,
+        )
+
+
+def test_speedup_orientation_is_baseline_over_candidate():
+    """A swap inverts every verdict the tool reports, and identical-work
+    tests cannot detect it because 1.0 inverted is still 1.0."""
+    from sns.timing import _compare_impl
+
+    # Candidate takes 1 ms, baseline 2 ms -> the candidate is twice as fast.
+    r = _compare_impl(
+        [1.0] * 30, [2.0] * 30,
+        tier=MeasurementTier.B, warmup=200, inner_reps=1,
+    )
+
+    assert r.speedup == pytest.approx(2.0, rel=0.01)
+    assert r.speedup_ci_lo > 1.0, "a faster candidate must give a speedup above 1"
 
 
 @requires_gpu
