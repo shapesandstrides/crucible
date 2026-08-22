@@ -79,6 +79,9 @@ def measure(
     scratch = l2_flush_buffer(dev) if flush_l2 else None
 
     policy.apply()
+    # restore() runs in the finally below and clears policy.locked, so capture
+    # the lock state now. Reading it after restore would make Tier A unreachable.
+    was_locked = policy.locked
     try:
         # Warmup. The default of 200 exists because do_bench's default of 25
         # yields two calls and underestimates by ~30% (triton#2306).
@@ -131,7 +134,7 @@ def measure(
         starts[i].elapsed_time(ends[i]) / inner_reps for i in range(iters)
     ]
     throttle_fired = throttle_before != throttle_after
-    tier = assign_tier(policy.locked, clock_samples, throttle_fired)
+    tier = assign_tier(was_locked, clock_samples, throttle_fired)
     ci_lo, ci_hi = bootstrap_ci(samples)
 
     return TimingResult(

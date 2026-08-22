@@ -84,3 +84,31 @@ def test_measure_is_internally_consistent_for_a_tiny_kernel():
     assert r.median_ms > 0
     assert r.ci95_lo_ms <= r.median_ms <= r.ci95_hi_ms
     assert len(r.samples_ms) == r.n == 30
+
+
+@requires_gpu
+def test_measure_uses_the_lock_state_observed_during_measurement(monkeypatch):
+    """policy.restore() clears policy.locked in a finally block. The tier must
+    come from the lock state captured before that, or Tier A can never occur."""
+    from sns import timing
+    from sns.types import MeasurementTier
+
+    monkeypatch.setattr(timing, "smi_query_float", lambda *a, **k: 1500.0)
+    monkeypatch.setattr(
+        timing, "throttle_snapshot", lambda: {"sw_power_cap": "Not Active"}
+    )
+
+    class FakeLockedPolicy:
+        def __init__(self):
+            self.locked = False
+
+        def apply(self):
+            self.locked = True
+
+        def restore(self):
+            self.locked = False
+
+    a = torch.randn(256, 256, device="cuda", dtype=torch.float16)
+    r = timing.measure(lambda: a @ a, warmup=10, iters=30, policy=FakeLockedPolicy())
+
+    assert r.tier is MeasurementTier.A

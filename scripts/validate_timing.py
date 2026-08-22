@@ -38,11 +38,17 @@ def main():
     ap.add_argument("-o", "--out", default="validate_timing.json")
     args = ap.parse_args()
 
+    if args.runs < 3:
+        raise SystemExit(
+            "acceptance requires at least 3 runs: cross-run spread is the "
+            "measurement, and fewer than 3 runs cannot establish it"
+        )
+
     if not torch.cuda.is_available():
         raise SystemExit("no CUDA device")
 
     policy = UnlockedClockPolicy()
-    if args.lock_clock:
+    if args.lock_clock is not None:
         policy = LockedClockPolicy(target_sm_mhz=args.lock_clock)
         try:
             policy.apply()
@@ -87,7 +93,7 @@ def main():
     report = {
         "fingerprint": fingerprint.model_dump(),
         "config": vars(args),
-        "runs": [r.model_dump(exclude={"samples_ms"}) for r in runs],
+        "runs": [r.model_dump() for r in runs],
         "median_of_medians_ms": statistics.median(medians),
         "cross_run_spread_ms": spread,
         "widest_within_run_ci_ms": widest_ci,
