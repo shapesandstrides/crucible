@@ -3,7 +3,7 @@ import pytest
 triton = pytest.importorskip("triton")
 import triton.language as tl
 
-from sns.tiles import TileSpace, discover_tiles
+from shapesandstrides.tiles import TileSpace, discover_tiles
 
 
 @triton.jit

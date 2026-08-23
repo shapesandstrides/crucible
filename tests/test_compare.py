@@ -2,7 +2,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from sns.types import ComparisonResult, MeasurementTier, TimingResult
+from shapesandstrides.types import ComparisonResult, MeasurementTier, TimingResult
 
 requires_gpu = pytest.mark.skipif(
     not torch.cuda.is_available(), reason="needs a CUDA device"
@@ -52,7 +52,7 @@ def test_compare_rejects_a_zero_median_candidate():
     CPU-only CI, unlike the old version of this test which needed a GPU
     just to satisfy compare()'s inline torch.cuda.is_available() check.
     """
-    from sns.timing import _compare_impl
+    from shapesandstrides.timing import _compare_impl
 
     with pytest.raises(ValueError, match="0 ms"):
         _compare_impl(
@@ -64,7 +64,7 @@ def test_compare_rejects_a_zero_median_candidate():
 def test_speedup_orientation_is_baseline_over_candidate():
     """A swap inverts every verdict the tool reports, and identical-work
     tests cannot detect it because 1.0 inverted is still 1.0."""
-    from sns.timing import _compare_impl
+    from shapesandstrides.timing import _compare_impl
 
     # Candidate takes 1 ms, baseline 2 ms -> the candidate is twice as fast.
     r = _compare_impl(
@@ -78,7 +78,7 @@ def test_speedup_orientation_is_baseline_over_candidate():
 
 @requires_gpu
 def test_compare_measures_both_sides_in_one_call():
-    from sns.timing import compare
+    from shapesandstrides.timing import compare
 
     a = torch.randn(512, 512, device="cuda", dtype=torch.float16)
     r = compare(lambda: a @ a, lambda: a @ a, warmup=20, iters=30)
@@ -96,7 +96,7 @@ def test_compare_measures_both_sides_in_one_call():
 def test_interleaved_comparison_of_identical_work_is_tight():
     """The whole point. Sequential measurement gave a p90 error above 100%
     on this hardware; interleaved must be an order of magnitude better."""
-    from sns.timing import compare
+    from shapesandstrides.timing import compare
 
     a = torch.randn(512, 512, device="cuda", dtype=torch.float16)
     errors = []
@@ -111,7 +111,7 @@ def test_interleaved_comparison_of_identical_work_is_tight():
 def test_both_sides_share_one_inner_rep_count():
     """Different rep counts would reintroduce a systematic difference
     through launch-overhead amortisation."""
-    from sns.timing import compare
+    from shapesandstrides.timing import compare
 
     a = torch.randn(512, 512, device="cuda", dtype=torch.float16)
     r = compare(lambda: a @ a, lambda: a @ a, warmup=20, iters=30)
@@ -121,7 +121,7 @@ def test_both_sides_share_one_inner_rep_count():
 @requires_gpu
 def test_a_genuinely_faster_candidate_is_still_detected():
     """Cancelling drift must not cancel real differences too."""
-    from sns.timing import compare
+    from shapesandstrides.timing import compare
 
     small = torch.randn(256, 256, device="cuda", dtype=torch.float16)
     big = torch.randn(1024, 1024, device="cuda", dtype=torch.float16)

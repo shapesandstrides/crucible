@@ -2,7 +2,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from sns.metrics import (
+from shapesandstrides.metrics import (
     DeviceInfo,
     DispatchTrace,
     MemoryMetrics,

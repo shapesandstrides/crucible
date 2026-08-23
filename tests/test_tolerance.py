@@ -1,6 +1,6 @@
 import pytest
 
-from sns.tolerance import DEFAULT_TOLERANCES, tolerance_for
+from shapesandstrides.tolerance import DEFAULT_TOLERANCES, tolerance_for
 
 
 def test_fp16_is_looser_than_fp32():

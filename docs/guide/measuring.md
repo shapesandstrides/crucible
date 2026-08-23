@@ -1,14 +1,14 @@
 # Measuring
 
-`sns.measure()` times a callable and returns a [`TimingResult`][sns.TimingResult] — a distribution with an interval and a trust tier, never a bare number.
+`shapesandstrides.measure()` times a callable and returns a [`TimingResult`][shapesandstrides.TimingResult] — a distribution with an interval and a trust tier, never a bare number.
 
 ```python
-t = sns.measure(lambda: a @ a, warmup=200, iters=50)
+t = shapesandstrides.measure(lambda: a @ a, warmup=200, iters=50)
 ```
 
 ## What happens on each call
 
-**1. The clock policy is applied.** By default this is [`UnlockedClockPolicy`][sns.clocks.UnlockedClockPolicy], which changes nothing and honestly reports that clocks were floating. Pass a [`LockedClockPolicy`][sns.clocks.LockedClockPolicy] to pin them — see [Measurement tiers](tiers.md).
+**1. The clock policy is applied.** By default this is [`UnlockedClockPolicy`][shapesandstrides.clocks.UnlockedClockPolicy], which changes nothing and honestly reports that clocks were floating. Pass a [`LockedClockPolicy`][shapesandstrides.clocks.LockedClockPolicy] to pin them — see [Measurement tiers](tiers.md).
 
 **2. Warmup runs 200 times by default.** This number is deliberate. `triton.testing.do_bench` defaults to `warmup=25`, which on a typical kernel amounts to **two actual calls**, and [underestimates by roughly 30%](https://github.com/openai/triton/issues/2306) — 11.23 ms reported against a true 8.79 ms. That issue was filed in September 2023 and has no maintainer response. Lowering our default reintroduces exactly that error.
 

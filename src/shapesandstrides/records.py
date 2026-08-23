@@ -13,9 +13,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
 
-from sns.correctness import CorrectnessReport
-from sns.metrics import DeviceInfo, DispatchTrace, MemoryMetrics, RuntimeContext
-from sns.types import ComparisonResult, TimingResult
+from shapesandstrides.correctness import CorrectnessReport
+from shapesandstrides.metrics import DeviceInfo, DispatchTrace, MemoryMetrics, RuntimeContext
+from shapesandstrides.types import ComparisonResult, TimingResult
 
 SCHEMA_VERSION = 1
 
@@ -80,7 +80,7 @@ def new_run_id() -> str:
 
 
 def default_root() -> Path:
-    return Path(os.environ.get("SNS_HOME", Path.home() / ".sns"))
+    return Path(os.environ.get("SHAPESANDSTRIDES_HOME", Path.home() / ".shapesandstrides"))
 
 
 def _runs_dir(root: Path | None) -> Path:

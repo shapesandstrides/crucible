@@ -1,5 +1,5 @@
 import pytest
-from sns.types import MeasurementTier, TimingResult, EnvironmentFingerprint
+from shapesandstrides.types import MeasurementTier, TimingResult, EnvironmentFingerprint
 
 
 def _result(**overrides):

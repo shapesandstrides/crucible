@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from sns.env import (
+from shapesandstrides.env import (
     arch_family,
     capture_fingerprint,
     hw_power_brake_active,
@@ -33,29 +33,29 @@ def test_arch_family_handles_unknown_and_missing():
 
 def test_smi_query_normalizes_not_available():
     """nvidia-smi prints the literal '[N/A]'; it must not reach a float()."""
-    with patch("sns.env._run_smi", return_value=(0, "[N/A]")):
+    with patch("shapesandstrides.env._run_smi", return_value=(0, "[N/A]")):
         assert smi_query("power.limit") is None
-    with patch("sns.env._run_smi", return_value=(0, "N/A")):
+    with patch("shapesandstrides.env._run_smi", return_value=(0, "N/A")):
         assert smi_query("power.limit") is None
 
 
 def test_smi_query_returns_value():
-    with patch("sns.env._run_smi", return_value=(0, "1695")):
+    with patch("shapesandstrides.env._run_smi", return_value=(0, "1695")):
         assert smi_query("clocks.sm") == "1695"
 
 
 def test_smi_query_returns_none_on_failure():
-    with patch("sns.env._run_smi", return_value=(127, "")):
+    with patch("shapesandstrides.env._run_smi", return_value=(127, "")):
         assert smi_query("clocks.sm") is None
 
 
 def test_smi_query_takes_first_gpu_line():
-    with patch("sns.env._run_smi", return_value=(0, "1695\n1700")):
+    with patch("shapesandstrides.env._run_smi", return_value=(0, "1695\n1700")):
         assert smi_query("clocks.sm") == "1695"
 
 
 def test_throttle_snapshot_collects_all_reasons():
-    with patch("sns.env.smi_query", return_value="Not Active"):
+    with patch("shapesandstrides.env.smi_query", return_value="Not Active"):
         snap = throttle_snapshot()
     assert set(snap) == {
         "sw_power_cap",
@@ -109,7 +109,7 @@ def test_capture_fingerprint_uses_smi_compute_cap_when_available():
             "driver_version": "550.0",
         }.get(field)
 
-    with patch("sns.env.smi_query", side_effect=fake_smi), patch.object(
+    with patch("shapesandstrides.env.smi_query", side_effect=fake_smi), patch.object(
         torch.cuda, "is_available", return_value=False
     ):
         fp = capture_fingerprint()
@@ -125,7 +125,7 @@ def test_capture_fingerprint_falls_back_to_torch_in_the_same_format():
     mismatch would make one machine's fingerprints compare as two."""
     torch = pytest.importorskip("torch")
 
-    with patch("sns.env.smi_query", return_value=None), patch.object(
+    with patch("shapesandstrides.env.smi_query", return_value=None), patch.object(
         torch.cuda, "is_available", return_value=True
     ), patch.object(
         torch.cuda, "get_device_capability", return_value=(9, 0)

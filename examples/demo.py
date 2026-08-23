@@ -16,9 +16,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import kernels as K  # noqa: E402
 
-import sns  # noqa: E402
-from sns.shapes import ShapeTier  # noqa: E402
-from sns.tiles import discover_tiles  # noqa: E402
+import shapesandstrides  # noqa: E402
+from shapesandstrides.shapes import ShapeTier  # noqa: E402
+from shapesandstrides.tiles import discover_tiles  # noqa: E402
 
 STORE = Path(__file__).parent.parent / ".demo-runs"
 
@@ -56,7 +56,7 @@ def main():
     rule("2. Testing each kernel")
     results = []
     for name, fn, ref, expectation in CASES:
-        rec = sns.test(
+        rec = shapesandstrides.test(
             fn,
             reference=ref,
             kernel_name=name,
@@ -85,7 +85,7 @@ def main():
         print("  Every correct kernel passed and every broken kernel failed.")
 
     rule("4. Timing a correct kernel against PyTorch")
-    rec = sns.test(
+    rec = shapesandstrides.test(
         K.triton_add,
         reference=K.ref_add,
         kernel_name="triton_add",
@@ -124,10 +124,10 @@ def main():
         print(f"  dispatch torch ran {k.name[:52]} ({k.device_time_us:.1f} us)")
 
     rule("6. The catalog")
-    print(f"  {len(sns.list_runs(root=STORE))} runs stored in {STORE}")
+    print(f"  {len(shapesandstrides.list_runs(root=STORE))} runs stored in {STORE}")
     print("\n  Browse them with:")
-    print(f"    sns runs --root {STORE}")
-    print(f"    sns show <run-id> --root {STORE}")
+    print(f"    shapesandstrides runs --root {STORE}")
+    print(f"    shapesandstrides show <run-id> --root {STORE}")
 
 
 if __name__ == "__main__":

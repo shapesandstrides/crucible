@@ -2,12 +2,12 @@ import json
 
 import pytest
 
-from sns.correctness import CorrectnessReport, ShapeOutcome
-from sns.metrics import DeviceInfo, MemoryMetrics, RuntimeContext
-from sns.oracle import OracleResult
-from sns.records import RunRecord, list_runs, load_run, new_run_id, save_run
-from sns.shapes import ShapeSpec
-from sns.types import ComparisonResult, MeasurementTier, TimingResult
+from shapesandstrides.correctness import CorrectnessReport, ShapeOutcome
+from shapesandstrides.metrics import DeviceInfo, MemoryMetrics, RuntimeContext
+from shapesandstrides.oracle import OracleResult
+from shapesandstrides.records import RunRecord, list_runs, load_run, new_run_id, save_run
+from shapesandstrides.shapes import ShapeSpec
+from shapesandstrides.types import ComparisonResult, MeasurementTier, TimingResult
 
 
 def _record(**kw):
@@ -114,7 +114,7 @@ def test_a_record_with_a_shape_mismatch_round_trips(tmp_path):
         total=1,
         failed_count=1,
         minimal_failure=outcome,
-        replay_command="sns replay --shape 10x10 --seed 1",
+        replay_command="shapesandstrides replay --shape 10x10 --seed 1",
     )
     r = _record(correctness=correctness)
     save_run(r, root=tmp_path)

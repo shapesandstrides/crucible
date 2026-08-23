@@ -2,9 +2,9 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from sns.records import load_run
-from sns.runner import run_test
-from sns.shapes import ShapeTier
+from shapesandstrides.records import load_run
+from shapesandstrides.runner import run_test
+from shapesandstrides.shapes import ShapeTier
 
 requires_gpu = pytest.mark.skipif(
     not torch.cuda.is_available(), reason="needs a CUDA device"
@@ -110,7 +110,7 @@ def test_kernel_hash_is_stable_for_a_partial():
     kernel would otherwise get a new identity every process."""
     import functools
 
-    from sns.runner import _hash_callable
+    from shapesandstrides.runner import _hash_callable
 
     def base(a, b, scale):
         return (a + b) * scale
@@ -122,7 +122,7 @@ def test_kernel_hash_is_stable_for_a_partial():
 
 
 def test_different_kernels_hash_differently():
-    from sns.runner import _hash_callable
+    from shapesandstrides.runner import _hash_callable
 
     def one(a, b):
         return a + b

@@ -7,9 +7,9 @@ You wrote a Triton kernel to replace a slower PyTorch operation. Before you ship
 Most people check both badly, with tools that are documented to be wrong.
 
 ```python
-import sns
+import shapesandstrides
 
-t = sns.measure(lambda: my_kernel(x, y))
+t = shapesandstrides.measure(lambda: my_kernel(x, y))
 print(t.median_ms, t.ci95_lo_ms, t.ci95_hi_ms, t.n, t.tier)
 ```
 
@@ -37,7 +37,7 @@ n = 4,194,305 elements, fp32
 triton.testing.do_bench (defaults)
   0.1916 ms          <- one number, no interval, no sample count
 
-sns.measure()
+shapesandstrides.measure()
   median   0.1925 ms
   95% CI   [0.1920, 0.1925] ms
   p10/p90  0.1915 / 0.1946 ms
@@ -45,7 +45,7 @@ sns.measure()
   tier     B
   clock    range 0.0 MHz, CV 0.0%
 
-sns.compare()
+shapesandstrides.compare()
   candidate 0.1920 ms  (triton)
   baseline  0.1915 ms  (torch)
   speedup   0.997x
@@ -77,7 +77,7 @@ FAIL  triton_add_assumes_contiguous  15/16 shapes
       minimal failing case: 512x512-noncontiguous-float32  seed=12648437
 ```
 
-Not built yet: cloud sync, the hosted catalog, and the web dashboard. `sns replay` prints a
+Not built yet: cloud sync, the hosted catalog, and the web dashboard. `shapesandstrides replay` prints a
 replay command but is not yet an executable subcommand.
 
 ## Install

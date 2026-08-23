@@ -2,8 +2,8 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from sns.correctness import CorrectnessReport, ShapeOutcome, check, shrink_to_minimal
-from sns.shapes import ShapeSpec, ShapeTier
+from shapesandstrides.correctness import CorrectnessReport, ShapeOutcome, check, shrink_to_minimal
+from shapesandstrides.shapes import ShapeSpec, ShapeTier
 
 requires_gpu = pytest.mark.skipif(
     not torch.cuda.is_available(), reason="needs a CUDA device"
@@ -64,7 +64,7 @@ def test_tiles_argument_reaches_generate_shapes_through_check():
     could not change the shape space reaching a kernel through the public
     entry point, even though generate_shapes itself already supported it.
     Runs on CPU: no GPU needed to prove the argument gets threaded through."""
-    from sns.tiles import TileSpace
+    from shapesandstrides.tiles import TileSpace
 
     def spy_factory(collector):
         def fn(a, b):
@@ -136,7 +136,7 @@ def test_a_wrong_kernel_fails_with_a_minimal_case_and_a_seed():
     assert r.failed_count > 0
     assert r.minimal_failure is not None
     assert r.minimal_failure.seed is not None
-    assert "sns replay" in r.replay_command
+    assert "shapesandstrides replay" in r.replay_command
 
 
 @requires_gpu

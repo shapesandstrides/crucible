@@ -6,18 +6,18 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from sns.correctness import check
-from sns.env import is_cuda_device
-from sns.metrics import (
+from shapesandstrides.correctness import check
+from shapesandstrides.env import is_cuda_device
+from shapesandstrides.metrics import (
     collect_device_info,
     collect_memory_metrics,
     collect_runtime_context,
     trace_dispatch,
 )
-from sns.oracle import make_inputs
-from sns.records import RunRecord, new_run_id, save_run
-from sns.shapes import ShapeTier, generate_shapes
-from sns.timing import compare
+from shapesandstrides.oracle import make_inputs
+from shapesandstrides.records import RunRecord, new_run_id, save_run
+from shapesandstrides.shapes import ShapeTier, generate_shapes
+from shapesandstrides.timing import compare
 
 
 def _hash_callable(fn: Callable) -> str:

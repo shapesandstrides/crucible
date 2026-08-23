@@ -1,10 +1,10 @@
-from sns.correctness import CorrectnessReport, check
-from sns.records import RunRecord, list_runs, load_run, save_run
-from sns.runner import run_test as test
-from sns.shapes import ShapeSpec, ShapeTier, generate_shapes
-from sns.tiles import discover_tiles
-from sns.timing import compare, measure
-from sns.types import (
+from shapesandstrides.correctness import CorrectnessReport, check
+from shapesandstrides.records import RunRecord, list_runs, load_run, save_run
+from shapesandstrides.runner import run_test as test
+from shapesandstrides.shapes import ShapeSpec, ShapeTier, generate_shapes
+from shapesandstrides.tiles import discover_tiles
+from shapesandstrides.timing import compare, measure
+from shapesandstrides.types import (
     ComparisonResult,
     EnvironmentFingerprint,
     MeasurementTier,

@@ -1,6 +1,6 @@
 import pytest
 
-from sns.shapes import ShapeSpec, ShapeTier, generate_shapes
+from shapesandstrides.shapes import ShapeSpec, ShapeTier, generate_shapes
 
 
 def _labels(specs):
@@ -85,7 +85,7 @@ def test_shape_spec_rejects_empty_dims():
         ShapeSpec(dims=(), dtype="float16", layout="contiguous", label="x")
 
 
-from sns.shapes import DimClass, dim_value
+from shapesandstrides.shapes import DimClass, dim_value
 
 
 def test_tail_one_is_awkward_for_every_power_of_two_block():
@@ -139,7 +139,7 @@ def test_fast_includes_a_double_tail_case():
 
 
 def test_declared_tiles_produce_block_specific_shapes():
-    from sns.tiles import TileSpace
+    from shapesandstrides.tiles import TileSpace
 
     ts = TileSpace(names=["BLOCK_M"], candidates={"BLOCK_M": [96]}, source="declared")
     specs = generate_shapes(ShapeTier.FAST, dtypes=["float16"], tiles=ts)
@@ -152,7 +152,7 @@ def test_tiles_are_optional():
 
 
 def test_fast_stays_inner_loop_sized_with_tiles():
-    from sns.tiles import TileSpace
+    from shapesandstrides.tiles import TileSpace
 
     ts = TileSpace(names=["BLOCK_M"], candidates={"BLOCK_M": [32, 64, 128]}, source="declared")
     specs = generate_shapes(ShapeTier.FAST, dtypes=["float16"], tiles=ts)
@@ -162,7 +162,7 @@ def test_fast_stays_inner_loop_sized_with_tiles():
 def test_large_blocks_are_not_silently_dropped_by_the_element_cap():
     """The double-tail case is the most valuable shape we generate; a size
     cap must shrink it, never discard it."""
-    from sns.tiles import TileSpace
+    from shapesandstrides.tiles import TileSpace
 
     ts = TileSpace(names=["BLOCK_M"], candidates={"BLOCK_M": [2048]}, source="declared")
     specs = generate_shapes(ShapeTier.EXHAUSTIVE, dtypes=["float16"], tiles=ts)

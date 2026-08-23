@@ -9,16 +9,16 @@ from typing import Callable
 
 from pydantic import BaseModel
 
-from sns.env import is_cuda_device
-from sns.oracle import (
+from shapesandstrides.env import is_cuda_device
+from shapesandstrides.oracle import (
     OracleResult,
     compare_against_oracle,
     compare_outputs,
     make_inputs,
     reference_fp64,
 )
-from sns.shapes import ShapeSpec, ShapeTier, generate_shapes
-from sns.tolerance import tolerance_for
+from shapesandstrides.shapes import ShapeSpec, ShapeTier, generate_shapes
+from shapesandstrides.tolerance import tolerance_for
 
 DEFAULT_SEED = 0xC0FFEE
 
@@ -74,7 +74,7 @@ def check(
 ) -> CorrectnessReport:
     """Run a kernel across a shape space and adjudicate every output.
 
-    ``tiles``, if given, is a `sns.tiles.TileSpace` describing the kernel's
+    ``tiles``, if given, is a `shapesandstrides.tiles.TileSpace` describing the kernel's
     declared block sizes; it is forwarded to `generate_shapes` so the shape
     space straddles those blocks' tails, not just generic power-of-two ones.
     Auto-discovery from ``fn`` is out of scope here: `discover_tiles` needs
@@ -140,7 +140,7 @@ def check(
     minimal = shrink_to_minimal(failures)
     replay = ""
     if minimal is not None:
-        replay = f"sns replay --shape {minimal.spec.label} --seed {minimal.seed}"
+        replay = f"shapesandstrides replay --shape {minimal.spec.label} --seed {minimal.seed}"
 
     return CorrectnessReport(
         outcomes=outcomes,

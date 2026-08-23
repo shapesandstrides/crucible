@@ -4,46 +4,46 @@ Everything on this page is generated from the source docstrings.
 
 ## Top level
 
-::: sns.measure
+::: shapesandstrides.measure
 
-::: sns.compare
+::: shapesandstrides.compare
 
 ## Result types
 
-::: sns.TimingResult
+::: shapesandstrides.TimingResult
 
-::: sns.ComparisonResult
+::: shapesandstrides.ComparisonResult
 
-::: sns.MeasurementTier
+::: shapesandstrides.MeasurementTier
 
-::: sns.EnvironmentFingerprint
+::: shapesandstrides.EnvironmentFingerprint
 
 ## Clock policies
 
-::: sns.clocks.UnlockedClockPolicy
+::: shapesandstrides.clocks.UnlockedClockPolicy
 
-::: sns.clocks.LockedClockPolicy
+::: shapesandstrides.clocks.LockedClockPolicy
 
-::: sns.clocks.ClockLockError
+::: shapesandstrides.clocks.ClockLockError
 
-::: sns.clocks.assign_tier
+::: shapesandstrides.clocks.assign_tier
 
 ## Statistics
 
-::: sns.stats.bootstrap_ci
+::: shapesandstrides.stats.bootstrap_ci
 
-::: sns.stats.ratio_ci
+::: shapesandstrides.stats.ratio_ci
 
-::: sns.stats.percentile
+::: shapesandstrides.stats.percentile
 
-::: sns.stats.cv_percent
+::: shapesandstrides.stats.cv_percent
 
 ## Environment
 
-::: sns.env.capture_fingerprint
+::: shapesandstrides.env.capture_fingerprint
 
-::: sns.env.arch_family
+::: shapesandstrides.env.arch_family
 
 ## Telemetry
 
-::: sns.telemetry.ClockSampler
+::: shapesandstrides.telemetry.ClockSampler

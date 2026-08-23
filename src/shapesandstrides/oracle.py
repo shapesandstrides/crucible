@@ -10,7 +10,7 @@ from typing import Callable
 
 from pydantic import BaseModel
 
-from sns.shapes import ShapeSpec
+from shapesandstrides.shapes import ShapeSpec
 
 _DTYPES = {
     "float64": "float64",

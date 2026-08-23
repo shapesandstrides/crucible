@@ -21,3 +21,13 @@ It verifies every `nvidia-smi` control write by reading the value back, because 
 ## Requirements
 
 Python 3.11+, an NVIDIA GPU, PyTorch with CUDA.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Permissive on purpose. This tool is only useful if it can sit inside other
+people's CI and be cited as a neutral reference, and that rules out copyleft or
+source-available terms. Two things are deliberately *not* granted: trademarks,
+and the right to present your own results as certified by this project
+(Apache-2.0 §6, restated in `NOTICE`).

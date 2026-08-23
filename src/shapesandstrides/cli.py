@@ -13,7 +13,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from sns.records import CorruptRecordError, list_runs, load_run
+from shapesandstrides.records import CorruptRecordError, list_runs, load_run
 
 app = typer.Typer(add_completion=False, help="Honest correctness and timing for kernels.")
 # Rich auto-detects terminal width and falls back to a narrow default when
@@ -23,7 +23,7 @@ app = typer.Typer(add_completion=False, help="Honest correctness and timing for 
 # terminal, so rendered output is stable regardless of how it's invoked.
 console = Console(width=200 if not sys.stdout.isatty() else None)
 
-ROOT = typer.Option(None, "--root", help="Record store (default: ~/.sns)")
+ROOT = typer.Option(None, "--root", help="Record store (default: ~/.shapesandstrides)")
 
 
 def _verdict(rec) -> str:
@@ -152,7 +152,7 @@ def compare(run_a: str, run_b: str, root: Path = ROOT):
 @app.command()
 def rm(run_id: str, root: Path = ROOT):
     """Delete a stored run."""
-    from sns.records import _runs_dir
+    from shapesandstrides.records import _runs_dir
 
     p = _runs_dir(root) / f"{run_id}.json"
     if not p.exists():

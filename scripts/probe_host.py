@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-THROWAWAY SPIKE CODE. Not part of the sns runner. Delete after we pick a host.
+THROWAWAY SPIKE CODE. Not part of the shapesandstrides runner. Delete after we pick a host.
 
 Answers one question: can this host actually be a measurement node?
 

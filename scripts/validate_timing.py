@@ -20,10 +20,10 @@ import time
 
 import torch
 
-from sns.clocks import ClockLockError, LockedClockPolicy, UnlockedClockPolicy
-from sns.env import capture_fingerprint
-from sns.timing import measure
-from sns.types import MeasurementTier
+from shapesandstrides.clocks import ClockLockError, LockedClockPolicy, UnlockedClockPolicy
+from shapesandstrides.env import capture_fingerprint
+from shapesandstrides.timing import measure
+from shapesandstrides.types import MeasurementTier
 
 
 def main():

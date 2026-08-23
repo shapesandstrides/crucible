@@ -3,17 +3,17 @@
 import math
 from typing import Callable
 
-from sns.clocks import ClockPolicy, UnlockedClockPolicy, assign_tier
-from sns.env import (
+from shapesandstrides.clocks import ClockPolicy, UnlockedClockPolicy, assign_tier
+from shapesandstrides.env import (
     hw_power_brake_active,
     hw_throttle_active,
     power_cap_active,
     sw_thermal_throttle_active,
     throttle_snapshot,
 )
-from sns.stats import bootstrap_ci, cv_percent, percentile, quantization_step, ratio_ci
-from sns.telemetry import ClockSampler
-from sns.types import ComparisonResult, TimingResult
+from shapesandstrides.stats import bootstrap_ci, cv_percent, percentile, quantization_step, ratio_ci
+from shapesandstrides.telemetry import ClockSampler
+from shapesandstrides.types import ComparisonResult, TimingResult
 
 MIN_ITERS = 30
 DEFAULT_WARMUP = 200
@@ -88,7 +88,7 @@ def measure(
     the timer's resolution still ties heavily, and a bootstrap CI over tied
     data can land narrower than the timer can actually resolve. As a second
     line of defense, the CI is widened to at least one quantization step
-    below (see quantization_step in sns.stats).
+    below (see quantization_step in shapesandstrides.stats).
 
     Known limitation: the reported CI is a bootstrap over samples within a
     single measurement window, so it captures sampling error inside that

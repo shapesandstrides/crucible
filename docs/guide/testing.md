@@ -1,12 +1,12 @@
 # Testing a kernel
 
-`sns.test()` runs the whole pipeline: correctness across a shape space, then timing, then a stored record.
+`shapesandstrides.test()` runs the whole pipeline: correctness across a shape space, then timing, then a stored record.
 
 ```python
-import sns
-from sns.shapes import ShapeTier
+import shapesandstrides
+from shapesandstrides.shapes import ShapeTier
 
-record = sns.test(
+record = shapesandstrides.test(
     my_triton_kernel,
     reference=lambda a, b: a + b,
     kernel_name="fused_add",
@@ -24,7 +24,7 @@ record = sns.test(
 
 **3. Timing uses the canonical tier only** — a few aligned, well-sized shapes. Correctness is cheap and wants breadth; timing is expensive and wants stability.
 
-**4. A record is written** to `~/.sns/runs/` as plain JSON.
+**4. A record is written** to `~/.shapesandstrides/runs/` as plain JSON.
 
 ## The reference is used two different ways
 
@@ -39,7 +39,7 @@ As the **timing baseline**, the same reference runs on GPU. That is the thing yo
 ```
 FAIL  triton_add_drops_tail    5/16 shapes
       minimal failing case: 1025-contiguous-float32  seed=12648431
-      replay: sns replay --shape 1025-contiguous-float32 --seed 12648431
+      replay: shapesandstrides replay --shape 1025-contiguous-float32 --seed 12648431
 ```
 
 The minimal case is the smallest shape that **already failed** — we do not search for smaller ones, so every reported case is one genuinely observed.
@@ -61,7 +61,7 @@ Note the shape: **1025**, one past a tile boundary. That is where masking bugs l
 If you pass a Triton kernel, `discover_tiles()` can read its configuration:
 
 ```python
-from sns.tiles import discover_tiles
+from shapesandstrides.tiles import discover_tiles
 
 discover_tiles(my_kernel)
 # plain @triton.jit  -> names=['BLOCK_M','BLOCK_N'], candidates={}
@@ -77,7 +77,7 @@ That second case matters for correctness, not just shape selection. **Autotune p
 Two extras exist for kernels that stack several operations:
 
 ```python
-sns.test(..., fused_ops=["layernorm", "matmul", "gelu"])
+shapesandstrides.test(..., fused_ops=["layernorm", "matmul", "gelu"])
 ```
 
 Error compounds through a chain, so a fused kernel's budget is wider than any single stage's. Pass `tolerance_override=(atol, rtol)` when you know better than the table.

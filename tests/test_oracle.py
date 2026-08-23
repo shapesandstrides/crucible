@@ -2,14 +2,14 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from sns.oracle import (
+from shapesandstrides.oracle import (
     OracleResult,
     compare_against_oracle,
     compare_outputs,
     make_inputs,
     reference_fp64,
 )
-from sns.shapes import ShapeSpec
+from shapesandstrides.shapes import ShapeSpec
 
 requires_gpu = pytest.mark.skipif(
     not torch.cuda.is_available(), reason="needs a CUDA device"
