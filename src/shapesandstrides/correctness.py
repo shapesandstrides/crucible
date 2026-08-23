@@ -10,6 +10,12 @@ from typing import Callable
 from pydantic import BaseModel
 
 from shapesandstrides.env import is_cuda_device
+from shapesandstrides.reference import (
+    OracleKind,
+    ReferenceResolutionError,
+    ResolvedReference,
+    resolve,
+)
 from shapesandstrides.oracle import (
     OracleResult,
     compare_against_oracle,
@@ -35,6 +41,11 @@ class ShapeOutcome(BaseModel):
 
 
 class CorrectnessReport(BaseModel):
+    # What kind of answer key produced this verdict. Recorded rather than
+    # inferred, so a weak oracle can never be mistaken for a strong one.
+    oracle_kind: OracleKind = OracleKind.NONE
+    oracle_label: str = "none"
+
     outcomes: list[ShapeOutcome] = []
     passed: bool = True
     total: int = 0
@@ -60,11 +71,11 @@ def shrink_to_minimal(failures: list[ShapeOutcome]) -> ShapeOutcome | None:
 
 def check(
     fn: Callable,
-    reference: Callable,
+    reference: object,
     tier: ShapeTier = ShapeTier.FAST,
     dtypes: list[str] | None = None,
     seed: int = DEFAULT_SEED,
-    n_inputs: int = 2,
+    n_inputs: int | None = None,
     op_name: str = "unknown",
     device: str = "cuda",
     max_elements: int | None = None,
@@ -73,6 +84,16 @@ def check(
     tiles=None,
 ) -> CorrectnessReport:
     """Run a kernel across a shape space and adjudicate every output.
+
+    ``reference`` is anything `reference.resolve` accepts: a dotted path such
+    as ``"torch.add"``, a lambda holding a short torch expression, any callable
+    the caller already has, or a `ResolvedReference`. It is run in float64 on
+    CPU, so it needs to be neither fast nor numerically careful — only correct.
+
+    ``n_inputs`` defaults to the reference's own arity. Asking the caller how
+    many tensors their kernel takes is a question we can usually answer
+    ourselves, and a wrong answer surfaces as a confusing shape error rather
+    than a clear one.
 
     ``tiles``, if given, is a `shapesandstrides.tiles.TileSpace` describing the kernel's
     declared block sizes; it is forwarded to `generate_shapes` so the shape
@@ -91,6 +112,23 @@ def check(
             "not a kernel defect — a correct kernel would fail every shape "
             "here for the same reason a broken one would."
         )
+
+    ref = resolve(reference)
+    if not ref.available:
+        # Deliberately not a silent pass. A kernel with no reference is the
+        # interesting case, but it needs the metamorphic checks to say anything
+        # honest about it, and those are not wired in here yet.
+        raise ReferenceResolutionError(
+            "check() was given no reference. Pass a dotted path such as "
+            "'torch.add', a lambda, or a callable. Verification without any "
+            "reference (config agreement, stride and dtype invariance) is not "
+            "available from check() yet."
+        )
+
+    # The reference and the kernel compute the same function, so the
+    # reference's arity is the kernel's input count.
+    if n_inputs is None:
+        n_inputs = ref.arity or 2
 
     dtypes = dtypes or ["float16", "float32"]
     specs = generate_shapes(tier, dtypes=dtypes, max_elements=max_elements, tiles=tiles)
@@ -111,7 +149,7 @@ def check(
             dev_inputs = make_inputs(spec, seed=shape_seed, n_inputs=n_inputs, device=device)
             actual = fn(*dev_inputs)
             expected = reference_fp64(
-                reference, cpu_inputs, out_dtype=getattr(torch, spec.dtype)
+                ref.fn, cpu_inputs, out_dtype=getattr(torch, spec.dtype)
             )
             atol, rtol = tolerance_for(
                 op_name, spec.dtype, fused_ops=fused_ops, override=tolerance_override
@@ -143,6 +181,8 @@ def check(
         replay = f"shapesandstrides replay --shape {minimal.spec.label} --seed {minimal.seed}"
 
     return CorrectnessReport(
+        oracle_kind=ref.kind,
+        oracle_label=ref.label,
         outcomes=outcomes,
         passed=not failures,
         total=len(outcomes),
