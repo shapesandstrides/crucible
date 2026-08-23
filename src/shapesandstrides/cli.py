@@ -164,3 +164,88 @@ def rm(run_id: str, root: Path = ROOT):
 
 if __name__ == "__main__":
     app()
+
+
+# Exit codes are the contract. A gate that always exits 0 is a report.
+EXIT_OK = 0
+EXIT_FAILED = 1
+EXIT_NOTHING_FOUND = 5  # mirrors pytest's "no tests collected"
+
+
+@app.command()
+def verify(
+    target: Path = typer.Argument(
+        Path("."), help="File or directory to scan for @verify-marked kernels."
+    ),
+    device: str = typer.Option(None, "--device", help="Override the decorator's device."),
+    tier: str = typer.Option(None, "--tier", help="Override the shape tier (fast/canonical/full)."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Only print failures."),
+):
+    """Verify every @verify-marked kernel under TARGET.
+
+    Exits 1 if any kernel fails, 5 if none were found, 0 otherwise. The exit
+    code is the point: it is what lets this block a merge rather than produce
+    a report nobody reads.
+    """
+    from shapesandstrides.shapes import ShapeTier
+    from shapesandstrides.verify import discover_in_path, spec_of, verify_kernel
+
+    try:
+        found = discover_in_path(target)
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(EXIT_NOTHING_FOUND)
+
+    if not found:
+        # Deliberately not a pass. Pointing the gate at the wrong path and
+        # getting a green tick is the worst possible outcome here.
+        console.print(
+            f"[yellow]No @verify-marked kernels found under {target}.[/yellow]\n"
+            f"[dim]Mark a kernel with @verify(against=...) so it can be checked.[/dim]"
+        )
+        raise typer.Exit(EXIT_NOTHING_FOUND)
+
+    resolved_tier = ShapeTier(tier) if tier else None
+
+    table = Table(box=None, pad_edge=False)
+    table.add_column("kernel")
+    table.add_column("verdict")
+    table.add_column("shapes", justify="right")
+    table.add_column("oracle")
+    table.add_column("minimal failing case")
+
+    failures = 0
+    for name, fn in found:
+        try:
+            report = verify_kernel(fn, device=device, tier=resolved_tier)
+        except Exception as e:
+            failures += 1
+            table.add_row(name, "[red]ERROR[/red]", "-", "-", f"{type(e).__name__}: {e}")
+            continue
+
+        ok = report.total - report.failed_count
+        if report.passed:
+            verdict = "[green]CORRECT[/green]"
+            minimal = ""
+        else:
+            failures += 1
+            verdict = "[red]INCORRECT[/red]"
+            minimal = report.minimal_failure.spec.label if report.minimal_failure else "?"
+
+        if report.passed and quiet:
+            continue
+        table.add_row(
+            name,
+            verdict,
+            f"{ok}/{report.total}",
+            f"{report.oracle_kind.value}:{report.oracle_label}",
+            minimal,
+        )
+
+    console.print(table)
+    dev = device or (spec_of(found[0][1]).device if found else "?")
+    console.print(
+        f"\n{len(found)} kernel(s) on device={dev}, "
+        f"[{'red' if failures else 'green'}]{failures} failed[/]"
+    )
+    raise typer.Exit(EXIT_FAILED if failures else EXIT_OK)
