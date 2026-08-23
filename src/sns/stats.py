@@ -32,6 +32,20 @@ def cv_percent(samples: list[float]) -> float:
     return 100.0 * statistics.pstdev(samples) / abs(mean)
 
 
+def quantization_step(samples: list[float]) -> float | None:
+    """Smallest non-zero gap between distinct sample values.
+
+    With a fast kernel and a ~1 us event timer, samples land on a small set
+    of discrete values. This estimates that grid, so a reported interval can
+    be prevented from claiming precision the instrument cannot deliver.
+    """
+    distinct = sorted(set(samples))
+    if len(distinct) < 2:
+        return None
+    gaps = [b - a for a, b in zip(distinct, distinct[1:]) if b > a]
+    return min(gaps) if gaps else None
+
+
 def bootstrap_ci(
     samples: list[float],
     confidence: float = 0.95,

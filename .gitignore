@@ -72,3 +72,6 @@ Thumbs.db
 
 # MkDocs build output
 site/
+
+# demo output
+.demo-runs/

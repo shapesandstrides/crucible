@@ -2,7 +2,14 @@ from unittest.mock import patch
 
 import pytest
 
-from sns.env import arch_family, capture_fingerprint, smi_query, throttle_snapshot
+from sns.env import (
+    arch_family,
+    capture_fingerprint,
+    hw_power_brake_active,
+    hw_throttle_active,
+    smi_query,
+    throttle_snapshot,
+)
 
 
 def test_arch_family_maps_known_capabilities():
@@ -57,6 +64,39 @@ def test_throttle_snapshot_collects_all_reasons():
         "hw_power_brake_slowdown",
     }
     assert all(v == "Not Active" for v in snap.values())
+
+
+def test_hw_power_brake_alone_is_hardware_asserted_throttling():
+    """hw_power_brake_slowdown is asserted by the same hardware safety
+    circuit, by the same naming and mechanism, as hw_thermal_slowdown —
+    measured Not Active throughout on real laptop hardware, including
+    under sustained load, so a reading of Active is trustworthy evidence."""
+    snap = {"hw_power_brake_slowdown": "Active", "hw_thermal_slowdown": "Not Active"}
+    assert hw_power_brake_active(snap) is True
+
+
+def test_hw_power_brake_gates_the_tier_alongside_hw_thermal():
+    """The governing principle: hardware assertions gate, software flags
+    do not. hw_power_brake_slowdown is a hardware assertion by the same
+    naming and mechanism as hw_thermal_slowdown, so it must gate too."""
+    not_active = {"hw_thermal_slowdown": "Not Active", "hw_power_brake_slowdown": "Not Active"}
+    brake_fired = {"hw_thermal_slowdown": "Not Active", "hw_power_brake_slowdown": "Active"}
+
+    assert hw_throttle_active(not_active, not_active) is False
+    assert hw_throttle_active(brake_fired, not_active) is True
+    assert hw_throttle_active(not_active, brake_fired) is True
+
+
+def test_sw_flags_alone_do_not_feed_hw_throttle_active():
+    """sw_power_cap and sw_thermal_slowdown are metadata only, even when
+    hw_throttle_active is asked to consider both snapshots."""
+    sw_only = {
+        "sw_power_cap": "Active",
+        "sw_thermal_slowdown": "Active",
+        "hw_thermal_slowdown": "Not Active",
+        "hw_power_brake_slowdown": "Not Active",
+    }
+    assert hw_throttle_active(sw_only, sw_only) is False
 
 
 def test_capture_fingerprint_uses_smi_compute_cap_when_available():

@@ -44,7 +44,20 @@ class ClockSampler:
             return None
 
     def throttled_now(self) -> bool | None:
-        """True if any throttle reason other than 'GpuIdle' is currently set."""
+        """True if the *hardware* thermal assertion is currently set.
+
+        Checks only HwThermalSlowdown (bit 0x40) — the GPU's own hardware
+        safety circuit — not any software-reported reason. Measured on real
+        consumer laptop hardware: SwPowerCap (0x4) and SwThermalSlowdown
+        (0x20) were both set at idle, 55C, 18W, card cold and doing
+        nothing. A software flag stuck on at idle is not evidence of
+        anything, so no software reason is trusted here, including the
+        generic HwSlowdown (0x8) parent bit, which aggregates
+        HwThermalSlowdown with HwPowerBrakeSlowdown and so is not the
+        unambiguous hardware-thermal signal by itself. Only the specific
+        thermal bit gates; everything else is metadata sampled separately
+        from the before/after nvidia-smi snapshot in sns.timing.
+        """
         if not self.available:
             return None
         try:
@@ -53,10 +66,10 @@ class ClockSampler:
             )
         except Exception:
             return None
-        # Bit 0 is nvmlClocksThrottleReasonGpuIdle, which is not a throttle we
-        # care about — an idle GPU between iterations is expected.
-        idle_bit = getattr(self._nvml, "nvmlClocksThrottleReasonGpuIdle", 1)
-        return bool(reasons & ~idle_bit & ~0x1)
+        hw_thermal_bit = getattr(
+            self._nvml, "nvmlClocksThrottleReasonHwThermalSlowdown", 0x40
+        )
+        return bool(reasons & hw_thermal_bit)
 
     def shutdown(self) -> None:
         if self.available:
