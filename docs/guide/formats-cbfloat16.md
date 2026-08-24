@@ -36,9 +36,18 @@ Two pieces of reasoning, recorded as reasoning rather than asserted as fact.
 
 **"Double the range of fp16" tells you nothing about the bias.** It follows automatically from the sixth exponent bit — with 6 bits you get 62 usable exponent codes instead of fp16's 30, whatever the bias happens to be. The claim constrains the *split*, not the *window position*.
 
-**But the loss-scaling requirement does.** Loss scaling exists to shove tiny gradients up into the representable range. If cbfloat16's bias were shifted low — say 40, putting the floor near 1.8e-12 — gradients would not be underflowing and loss scaling would be unnecessary. The fact that Cerebras *requires* it is evidence the window sits high, which points at the IEEE-conventional bias of **31**.
+**The loss-scaling requirement is the only real clue — and it is weaker than it first looks.**
 
-That is inference from observable behaviour. It is not proof, and this page does not present it as one.
+The argument goes: loss scaling exists to lift tiny gradients into the representable range, so requiring it is evidence the window sits high, which points at the IEEE-conventional **31** rather than something shifted low.
+
+!!! note "Our own measurement weakens this"
+    That reasoning assumed gradients actually underflow at bias 31. [The sweep below](#why-the-bias-is-the-interesting-parameter) says they do not — at bias 31 the cliff sits near 9e-13, and nothing in a 1e-11-to-1e-3 magnitude band gets near it.
+
+    So either the inference is wrong, or real gradient distributions have far heavier tails than our synthetic ones and genuinely reach below 1e-12. Both are possible and we cannot currently distinguish them.
+
+    The bias remains **unknown**. We are recording the reasoning, the measurement that undercuts it, and the fact that it is unresolved — rather than picking whichever of the two we prefer.
+
+This is inference from observable behaviour, partially contradicted by our own measurement. It is not proof, and this page does not present it as one.
 
 ## Building it
 
@@ -49,18 +58,20 @@ CB_RECONSTRUCTED = FormatSpec(
     name="cbfloat16-reconstructed",
     exponent_bits=6,
     mantissa_bits=9,
-    bias=ieee_bias(6),          # 31 — see the reasoning above
+    bias=ieee_bias(6),          # 31 — a convention, not a finding
     provenance={
         "exponent_bits": Provenance.DOCUMENTED,   # Cerebras docs
         "mantissa_bits": Provenance.DOCUMENTED,   # Cerebras docs
-        "bias": Provenance.INFERRED,              # from the loss-scaling requirement
+        "bias": Provenance.ASSUMED,               # NOT inferred — see above
         "has_subnormals": Provenance.ASSUMED,     # IEEE convention
         "has_infinities": Provenance.ASSUMED,     # IEEE convention
     },
     notes=(
-        "Widths from Cerebras documentation. Bias inferred from their "
-        "loss-scaling requirement, not published. Subnormal and infinity "
-        "policy assumed to follow IEEE convention."
+        "Widths from Cerebras documentation. Bias is the IEEE convention for "
+        "6 exponent bits, applied in the absence of any published value -- an "
+        "assumption, not a deduction: the loss-scaling argument for it is "
+        "contradicted by our own sweep. Subnormal and infinity policy assumed "
+        "to follow IEEE convention."
     ),
 )
 ```
@@ -96,9 +107,29 @@ Meanwhile the industry's remedy for gradients falling off the bottom of the wind
 
 Look at what that is — a runtime workaround for a badly positioned exponent window. Shifting the bias moves the window directly, once, for free.
 
-So there is an unanswered question here: **could a shifted bias remove the need for loss scaling entirely?** Nobody can currently test it, because no tool lets you sweep a bias against a real workload.
+So there is an unanswered question here: **could a shifted bias remove the need for loss scaling entirely?**
 
-That experiment is `sweep`, which is designed but **not yet built**. This page will be updated with results, not predictions.
+`sweep` now runs that experiment. Measured on a 6-exponent-bit, 9-mantissa-bit format over 300 gradient-magnitude values:
+
+| bias | subnormal floor | values silently zeroed |
+|---|---|---|
+| 12 | 9.54e-07 | 174 / 300 |
+| 20 | 3.73e-09 | 87 / 300 |
+| 24 | 2.33e-10 | 38 / 300 |
+| **28** | 1.46e-11 | **0 / 300** |
+| 31 (the inferred setting) | 1.82e-12 | 0 / 300 |
+
+On this input distribution, **bias 28 already loses nothing** — and so does the inferred 31. Which raises a genuine question about the vendor's requirement: if the window is wide enough that no gradient in this band underflows, why does the stack insist on loss scaling?
+
+Three honest caveats before anyone draws a conclusion from that:
+
+1. `gradient_like` is **an assumption**, not a recording from a real training run. Real gradient distributions have heavier tails, and the tail is exactly what loss scaling protects.
+2. This models **storage precision only** — real hardware rounds every intermediate, so accumulated error is worse than measured here.
+3. Loss scaling also guards the *backward* pass through many layers, where magnitudes compound. A single reduction does not exercise that.
+
+So the finding is real but narrow: *for this synthetic distribution and this operation*, the window is not the binding constraint. Whether that holds for real training is untested, and the honest next step is [gradient magnitudes from an actual run](formats.md#what-this-does-not-do-yet).
+
+Full detail and the other two findings from that curve — including that the underflow cliff sits at *half* the smallest subnormal — are in the [formats guide](formats.md#sweep-vary-a-parameter-and-read-the-curve).
 
 ## One thing in the documentation that does not add up
 

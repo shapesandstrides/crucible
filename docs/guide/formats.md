@@ -45,7 +45,9 @@ The bias is a *reading convention*, not a hardware feature. The chip stores the 
 
 Mantissa bits are not free. A multiplier's cost grows roughly with the square of its width, which is why bf16's 8 significand bits became popular in hardware and why formats trade mantissa for exponent.
 
-## The four verbs
+## The core verbs
+
+Four to describe and check a format; two more below, after the grade, to measure one.
 
 ### `FormatSpec` — declare a format
 
@@ -161,17 +163,85 @@ As with [measurement and oracle tiers](tiers.md), **C is the absence of a verdic
 
 This separation does real work. In the `1e-8` table at the top, the fp16 underflow carries **grade A** — it is validated against torch's actual behaviour, not a simulator artifact. Only the reconstructed format's row is grade B.
 
+### `error_over` — what a format costs a calculation
+
+```python
+from shapesandstrides.formats import FLOAT16, error_over, gradient_like
+from shapesandstrides.formats.ops import softmax
+
+d = error_over(softmax, [gradient_like(400, seed=1)], FLOAT16)
+d.p50_rel_error, d.p90_rel_error, d.max_rel_error   # a distribution
+d.ci95_lo, d.ci95_hi                                # with an interval
+d.input_loss.underflowed                            # and a loss census
+```
+
+Measured, softmax over 400 gradient-magnitude values:
+
+| format | p50 rel error | p90 | max | underflowed on input |
+|---|---|---|---|---|
+| fp32 | 3.06e-08 | 3.98e-08 | 4.65e-08 | 0 / 400 |
+| fp16 | 2.18e-04 | 2.42e-04 | 3.72e-04 | **174 / 400** |
+| 6/9 bias 31 | 5.45e-04 | 5.58e-04 | 7.54e-04 | 0 / 400 |
+| bf16 | 9.81e-04 | 1.01e-03 | 1.85e-03 | 0 / 400 |
+
+Read that table carefully. **fp16 has the lowest error of the three 16-bit formats — because 43% of the gradients underflowed to zero before the arithmetic began.** The survivors genuinely are more precise; the data is gone. That is why the loss census sits beside the distribution and is never folded into it.
+
+!!! warning "This models storage precision, not arithmetic"
+    Inputs are rounded into the format, the calculation runs exactly in double precision, and the result is rounded again. **Real hardware rounds every intermediate, so these error figures are a lower bound.**
+
+    Every result records `quantization_model`, which currently has exactly one value, `STORAGE_ONLY`. There is deliberately no `EVERY_STEP` member, because no code path can produce one yet — promising one in the JSON would be a lie.
+
+    The loss census is *not* a lower bound. Values are destroyed at storage time, so those counts are exact.
+
+### `sweep` — vary a parameter and read the curve
+
+The reason for everything above.
+
+```python
+from shapesandstrides.formats import FormatSpec, ieee_bias, sweep, gradient_like
+from shapesandstrides.formats.ops import total
+
+cb = FormatSpec(name="cb-6-9", exponent_bits=6, mantissa_bits=9, bias=ieee_bias(6))
+r = sweep(cb, "bias", range(12, 44, 4), total, [gradient_like(300, seed=1)])
+r.best_by_silent_loss
+```
+
+Measured:
+
+| bias | normal floor | subnormal floor | values lost | p50 rel error |
+|---|---|---|---|---|
+| 12 | 4.88e-04 | 9.54e-07 | 174 | 2.22e-03 |
+| 16 | 3.05e-05 | 5.96e-08 | 131 | 3.22e-04 |
+| 20 | 1.91e-06 | 3.73e-09 | 87 | 3.22e-04 |
+| 24 | 1.19e-07 | 2.33e-10 | 38 | 3.22e-04 |
+| **28** | 7.45e-09 | 1.46e-11 | **0** | 3.22e-04 |
+| 40 | 1.82e-12 | 3.55e-15 | 0 | 3.22e-04 |
+
+Three things that curve teaches, none of which were obvious in advance:
+
+**The underflow cliff is at half the smallest subnormal** — two steps below where intuition puts it. Subnormals extend usable range below the normal floor by a factor of 2^mantissa_bits, and then round-to-nearest pulls anything above the halfway point *up* to the smallest subnormal rather than down to zero. At bias 28 an input of 1.07e-11 survives despite being below both the normal floor and the smallest subnormal.
+
+**Too low a bias costs you twice.** Values fall off the bottom, *and* the survivors get crowded into the subnormal range where fewer significant bits remain. Bias 12's median error is seven times bias 16's.
+
+**There is a real optimum, and it is not "as high as possible."** Raising the bias buys room at the bottom by giving up the ceiling. Once a setting loses nothing, going higher buys nothing and costs headroom — so `best_by_silent_loss` picks the *lowest* lossless setting, 28 here, rather than the highest.
+
+An impossible setting raises rather than being skipped: a curve that quietly omitted the points that did not work would misrepresent what was actually tested.
+
 ## What this does not do yet
 
-Honest scope. Built and tested:
+Honest scope. Built and tested: `FormatSpec` with provenance, `values_for`, `round_trip`, `validate`, the grade, `error_over`, `sweep`.
 
-- `FormatSpec` with provenance, `values_for`, `round_trip`, `validate`, the grade.
+Not built:
 
-Designed but **not built**:
+- **Step-wise rounding** — the `EVERY_STEP` quantization model. Until it exists, error figures are lower bounds.
+- **A loss-scaling equivalence test** — does shifting the bias by N do the same job as scaling by 2^N, and where do the two diverge? The bias sweep makes this askable; nobody has asked it yet.
+- **Gradient magnitudes from a real training run.** `gradient_like` is a stated assumption, not a measurement — see below.
+- A `@check_format` decorator, a CLI, and stored run records.
 
-- `error_over` — error distributions with confidence intervals over a real calculation (dot product, softmax, layernorm).
-- `sweep` — vary the bias and measure how many values are silently lost at each setting. The interesting experiment, and the reason for all of the above.
-- A `@check_format` decorator and a CLI.
+!!! warning "`gradient_like` is an assumption about the world"
+    It is a log-uniform magnitude spread from 1e-11 to 1e-3 with random signs, chosen because that band straddles fp16's floor. **No model was trained to obtain it.** Treat any conclusion resting on it exactly as you would treat a format parameter marked `ASSUMED`.
+
+    Replacing it with magnitudes recorded from a real training run would strengthen every result above, and is outstanding work.
 
 ## Credit
 
