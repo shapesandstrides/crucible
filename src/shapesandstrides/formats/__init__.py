@@ -12,6 +12,10 @@ Deliberately absent: any constant named after a format whose parameters are not
 fully published. See ``docs/guide/formats-cbfloat16.md``.
 """
 
+from shapesandstrides.formats.equivalence import (
+    EquivalenceReport,
+    loss_scaling_equivalence,
+)
 from shapesandstrides.formats.error import (
     ErrorDistribution,
     QuantizationModel,
@@ -43,6 +47,7 @@ from shapesandstrides.formats.validate import ValidationReport, validate
 from shapesandstrides.formats.values import ValueClass, ValueSet, values_for
 
 __all__ = [
+    "EquivalenceReport",
     "ErrorDistribution",
     "FormatSpec",
     "FormatTier",
@@ -58,6 +63,7 @@ __all__ = [
     "ValueSet",
     "error_over",
     "gradient_like",
+    "loss_scaling_equivalence",
     "recorded_gradient_provenance",
     "recorded_gradients",
     "ieee_bias",
