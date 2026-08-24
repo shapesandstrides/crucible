@@ -13,6 +13,11 @@ fully published. See ``docs/guide/formats-cbfloat16.md``.
 """
 
 from shapesandstrides.formats.grade import FormatTier
+from shapesandstrides.formats.roundtrip import (
+    Outcome,
+    RoundTripReport,
+    round_trip,
+)
 from shapesandstrides.formats.spec import (
     BFLOAT16,
     FLOAT8_E4M3,
@@ -29,10 +34,13 @@ from shapesandstrides.formats.values import ValueClass, ValueSet, values_for
 __all__ = [
     "FormatSpec",
     "FormatTier",
+    "Outcome",
+    "RoundTripReport",
     "Provenance",
     "ValueClass",
     "ValueSet",
     "ieee_bias",
+    "round_trip",
     "values_for",
     "FLOAT64",
     "FLOAT32",
