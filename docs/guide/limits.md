@@ -49,6 +49,11 @@ Inputs are drawn from a standard normal distribution. That means these are **not
 
 A kernel can be correct on well-conditioned random data and wrong on the distribution your model actually produces.
 
+!!! note "Half-fixed"
+    `shapesandstrides.formats.values_for` now generates exactly these classes -- subnormals, both zeros, one step past the ceiling, below the underflow floor, ties, NaN and the infinities -- for any format. See [Numeric formats](formats.md).
+
+    It is **not yet wired into shape generation**, so `check()` still draws standard-normal inputs and the gap above remains real for kernel testing. Connecting the two is outstanding work.
+
 ## Performance claims below the noise floor
 
 On hardware with floating clocks, comparing identical work still shows around 1–2% variation. A speedup claim below that is not distinguishable from noise, regardless of what the interval says.

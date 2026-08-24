@@ -39,6 +39,9 @@ nav:
       - Measuring: guide/measuring.md
       - Comparing: guide/comparing.md
       - Tiers: guide/tiers.md
+      - Numeric formats: guide/formats.md
+      - Reconstructing cbfloat16: guide/formats-cbfloat16.md
+      - Findings: guide/formats-findings.md
       - Choosing a host: guide/hosts.md
       - What this cannot catch: guide/limits.md
   - API reference: reference.md
