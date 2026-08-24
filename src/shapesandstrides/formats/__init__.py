@@ -12,6 +12,7 @@ Deliberately absent: any constant named after a format whose parameters are not
 fully published. See ``docs/guide/formats-cbfloat16.md``.
 """
 
+from shapesandstrides.formats.grade import FormatTier
 from shapesandstrides.formats.spec import (
     BFLOAT16,
     FLOAT8_E4M3,
@@ -23,11 +24,16 @@ from shapesandstrides.formats.spec import (
     Provenance,
     ieee_bias,
 )
+from shapesandstrides.formats.values import ValueClass, ValueSet, values_for
 
 __all__ = [
     "FormatSpec",
+    "FormatTier",
     "Provenance",
+    "ValueClass",
+    "ValueSet",
     "ieee_bias",
+    "values_for",
     "FLOAT64",
     "FLOAT32",
     "FLOAT16",
