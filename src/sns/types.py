@@ -35,9 +35,22 @@ class TimingResult(BaseModel):
     tier: MeasurementTier
     warmup: int
     inner_reps: int = 1
+    # True when either hardware-asserted throttle fired: hw_thermal_slowdown
+    # or hw_power_brake_slowdown. Both come from the GPU's own hardware
+    # safety circuits, not driver/vendor software policy, and either one
+    # alone gates the tier down to C. hw_power_brake_flagged below records
+    # which one it was; throttle_fired is the OR of both.
     throttle_fired: bool = False
+    hw_power_brake_flagged: bool = False
+    # Everything below is metadata only — recorded, never gating. Measured
+    # on real consumer laptop hardware: sw_power_cap and sw_thermal_slowdown
+    # were both Active at idle (55C, 18W, card cold and doing nothing), so
+    # neither software flag is trustworthy evidence of anything.
+    power_capped: bool = False
+    sw_thermal_flagged: bool = False
     clock_cv_pct: float | None = None
     clock_range_mhz: float | None = None
+    quantization_step_ms: float | None = None
 
     @field_validator("samples_ms")
     @classmethod

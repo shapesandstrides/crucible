@@ -59,15 +59,26 @@ That `PARITY` is the point. A naive Triton vector-add *should* tie `torch.add` �
 
 ## Status
 
-!!! warning "Pre-alpha. The measurement engine works; its intervals are not yet proven honest."
+!!! warning "Pre-alpha, but the engine works end to end."
 
-Phase 0 builds the measurement engine, and it is complete and tested. What it has **not** yet passed is its own acceptance gate: 50 runs of an identical kernel spread over 20 minutes, checking that the variation *between* runs fits inside the intervals each run reports. That requires a GPU whose clocks can be locked, and no such host has been available yet.
+The local test engine is complete: shape generation, an fp64 CPU correctness oracle,
+unprivileged metric collection, timing with interleaved measurement, JSON run records,
+and a catalog CLI. 174 tests.
 
-Correctness checking — shape-space generation, the fp64 CPU oracle, minimal failing cases — is Phase 1 and not built.
+Verified against real Triton kernels — three correct and three deliberately broken:
 
-See [Choosing a host](guide/hosts.md) for what qualifies, and [Why this exists](why.md) for the evidence the design rests on.
+```
+PASS  triton_add                     16/16 shapes
+PASS  triton_mul                     16/16 shapes
+PASS  triton_add_autotuned           16/16 shapes
+FAIL  triton_add_drops_tail           5/16 shapes
+      minimal failing case: 1025-contiguous-float32  seed=12648431
+FAIL  triton_add_assumes_contiguous  15/16 shapes
+      minimal failing case: 512x512-noncontiguous-float32  seed=12648437
+```
 
----
+Not built yet: cloud sync, the hosted catalog, and the web dashboard. `sns replay` prints a
+replay command but is not yet an executable subcommand.
 
 ## Install
 

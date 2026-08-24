@@ -35,10 +35,12 @@ nav:
   - Home: index.md
   - Getting started: getting-started.md
   - Guide:
+      - Testing a kernel: guide/testing.md
       - Measuring: guide/measuring.md
       - Comparing: guide/comparing.md
       - Measurement tiers: guide/tiers.md
       - Choosing a host: guide/hosts.md
+      - What this cannot catch: guide/limits.md
   - API reference: reference.md
   - Why this exists: why.md
 

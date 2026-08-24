@@ -6,7 +6,7 @@ Every result carries a tier recording how much it can be trusted. Tiers are assi
 |---|---|---|
 | **A** | Clocks pinned, verified held under load, range ≤ 30 MHz | Fully trustworthy. Comparable across runs. |
 | **B** | Clocks floating; variance measured and disclosed | Usable, but only for differences large enough to survive the noise. |
-| **C** | Clock CV > 3%, or throttling detected | **No performance verdict is valid.** |
+| **C** | Clock CV > 3%, or a hardware throttle assertion fired | **No performance verdict is valid.** |
 
 ```python
 t.tier                    # MeasurementTier.B
@@ -23,13 +23,18 @@ So the principle survives in a weaker form: **never *silently* measure with floa
 
 ## Why throttle flags alone aren't enough
 
-You might expect `nvidia-smi`'s throttle reasons to answer "was this measurement clean?" They don't, for two independent reasons — both found by testing on real hardware.
+You might expect `nvidia-smi`'s throttle reasons to answer "was this measurement clean?" They don't, and testing on real hardware (an RTX 3060 Laptop GPU) found two separate problems: one with *all* the flags, and one specific to the *software*-reported ones.
 
-**They miss variance that isn't throttling.** On an RTX 3060 under sustained load the SM clock swung **495 MHz — 5.1% CV** — while every throttle flag stayed inactive. Two identical runs even disagreed about whether throttling fired at all. Boost and idle transitions move the clock hundreds of megahertz without setting a single flag.
+**They miss variance that isn't throttling.** Under 30 s of sustained load the SM clock swung **495 MHz — 5.1% CV** — while every throttle flag, hardware and software, stayed silent. Two identical runs even disagreed about whether throttling fired at all. Boost and idle transitions move the clock hundreds of megahertz without setting a single flag. This is the original reason observed clock variance became the governing signal, not the flags.
 
-**They miss throttling that never stops.** The original implementation compared a snapshot taken before the loop against one taken after, and treated a *difference* as evidence of throttling. A GPU throttled for the entire window produces `before == after == "Active"` — identical snapshots, and a verdict of "clean." This is not an edge case: the baseline snapshot is taken *after* warmup, when the card is already loaded, so a sustained workload is precisely the case that gets missed.
+**The software flags are simply not trustworthy.** `sw_power_cap` read `Active` at idle. That sounds alarming until you notice it means the card is at its power limit — the normal state of *every* GPU under load, including datacenter parts, not evidence of instability. `sw_thermal_slowdown` was worse: it read `Active` at idle, 55 °C, 18 W — a cold card doing nothing. That flag is simply stuck on. Neither is usable evidence of anything.
 
-Both are now handled. Clock variance observed inside the window is the governing signal, and throttling is detected from any active state in either snapshot plus a per-iteration NVML check.
+**The hardware assertions are different.** `hw_thermal_slowdown` and `hw_power_brake_slowdown` stayed `Not Active` throughout testing, including under the sustained load that produced the 495 MHz swing above. Both are asserted by the GPU's own hardware safety circuits, not by driver or vendor software policy, and neither was ever seen stuck. That makes them trustworthy enough to disqualify a window by themselves.
+
+**The rule this settles on:** observed clock variance governs; a hardware-asserted throttle (`hw_thermal_slowdown` or `hw_power_brake_slowdown`) disqualifies a measurement outright; software throttle flags (`sw_power_cap`, `sw_thermal_slowdown`) are recorded on [`TimingResult`][sns.TimingResult] as metadata — `power_capped`, `sw_thermal_flagged` — and never gate the tier. Throttling is checked from any hardware-asserted state in either the before/after snapshot or a per-iteration NVML sample; the gating decision itself lives in [`assign_tier`][sns.clocks.assign_tier].
+
+!!! note "Also handled: throttling that never stops"
+    An earlier version compared only a snapshot before the loop against one after, and treated a *difference* as evidence of throttling. A GPU throttled for the entire window produces `before == after == "Active"` — identical snapshots, and a false verdict of "clean." The baseline snapshot is taken *after* warmup, when the card is already loaded, so a sustained workload was precisely the case that got missed. Checking each snapshot independently, plus the per-iteration NVML sample, closes this.
 
 ## Reaching Tier A
 
