@@ -186,12 +186,35 @@ Measured, softmax over 400 gradient-magnitude values:
 
 Read that table carefully. **fp16 has the lowest error of the three 16-bit formats — because 43% of the gradients underflowed to zero before the arithmetic began.** The survivors genuinely are more precise; the data is gone. That is why the loss census sits beside the distribution and is never folded into it.
 
-!!! warning "This models storage precision, not arithmetic"
-    Inputs are rounded into the format, the calculation runs exactly in double precision, and the result is rounded again. **Real hardware rounds every intermediate, so these error figures are a lower bound.**
+#### Two models of "computing in a format"
 
-    Every result records `quantization_model`, which currently has exactly one value, `STORAGE_ONLY`. There is deliberately no `EVERY_STEP` member, because no code path can produce one yet — promising one in the JSON would be a lie.
+Every result records which one produced it, because they give very different answers.
 
-    The loss census is *not* a lower bound. Values are destroyed at storage time, so those counts are exact.
+`STORAGE_ONLY` (the default) rounds the inputs and the output and computes exactly in between. `EVERY_STEP` rounds after each elementary operation, the way silicon does.
+
+```python
+from shapesandstrides.formats.error import QuantizationModel
+
+error_over(total, [xs], BFLOAT16, model=QuantizationModel.EVERY_STEP)
+```
+
+The gap between them is not a detail. Summing 0.1 repeatedly in bf16, max relative error:
+
+| terms | `STORAGE_ONLY` | `EVERY_STEP` |
+|---|---|---|
+| 10 | 1.11e-16 | 7.81e-03 |
+| 100 | 1.95e-15 | 6.25e-03 |
+| 1000 | 1.41e-14 | **0.68** |
+| 5000 | 9.04e-14 | **0.94** |
+
+**Summing 1000 values in bf16 loses 68% of the answer.** This is accumulator stagnation: once the running total is large enough, each new addend falls below its ULP and is discarded entirely. Storage-only reported 1.4e-14 for the same calculation, which anyone would read as fine.
+
+!!! warning "Storage-only numbers are a lower bound"
+    Notice storage-only barely moves with the length of the sum — it *cannot* model error growth through a reduction, because it only rounds at the edges. It stays the default only because changing a default would silently restate results people already have. **Reach for `EVERY_STEP` for anything load-bearing.**
+
+    The loss census is not a lower bound under either model. Values are destroyed at storage time, before any arithmetic, so those counts are exact.
+
+`EVERY_STEP` needs an op that accepts a `q` parameter — a rounding function applied after each step. The ops in `shapesandstrides.formats.ops` do; an arbitrary callable is refused with a remedy rather than silently falling back.
 
 ### `sweep` — vary a parameter and read the curve
 
@@ -233,15 +256,49 @@ Honest scope. Built and tested: `FormatSpec` with provenance, `values_for`, `rou
 
 Not built:
 
-- **Step-wise rounding** — the `EVERY_STEP` quantization model. Until it exists, error figures are lower bounds.
-- **A loss-scaling equivalence test** — does shifting the bias by N do the same job as scaling by 2^N, and where do the two diverge? The bias sweep makes this askable; nobody has asked it yet.
-- **Gradient magnitudes from a real training run.** `gradient_like` is a stated assumption, not a measurement — see below.
-- A `@check_format` decorator, a CLI, and stored run records.
+- **A `@check_format` decorator and a CLI.** Today this is library-only; you import it rather than running it from a shell or wiring it into pytest.
+- **Stored run records**, so results stay comparable as `gfloat`, torch and numpy move underneath them.
+- **Gradients from a real corpus.** The recording uses a real architecture on a synthetic task; a real dataset would strengthen the tail.
+- **Block and microscaling formats** (MX). `gfloat` supports them; this harness does not wrap them yet.
+- **Arbitrary user ops under `EVERY_STEP`.** Your own function needs a `q` parameter to participate.
 
-!!! warning "`gradient_like` is an assumption about the world"
-    It is a log-uniform magnitude spread from 1e-11 to 1e-3 with random signs, chosen because that band straddles fp16's floor. **No model was trained to obtain it.** Treat any conclusion resting on it exactly as you would treat a format parameter marked `ASSUMED`.
+### Where the gradient magnitudes come from
 
-    Replacing it with magnitudes recorded from a real training run would strengthen every result above, and is outstanding work.
+There are two sources, and the difference between them matters more than it looks.
+
+```python
+from shapesandstrides.formats import gradient_like, recorded_gradients
+from shapesandstrides.formats import recorded_gradient_provenance
+
+gradient_like(500, seed=1)          # a labelled guess
+recorded_gradients()                # a real backward pass
+recorded_gradients(tail=True)       # its extreme low tail
+recorded_gradient_provenance()      # exactly what it is, and what is wrong with it
+```
+
+`gradient_like` is a log-uniform spread from 1e-11 to 1e-3. It is honestly labelled, and it is **not good enough for anything load-bearing** — see [Findings](formats-findings.md#the-guess-was-blind-exactly-where-it-mattered) for the moment it produced a confident wrong conclusion.
+
+`recorded_gradients` comes from `scripts/record_gradients.py`: a real 867k-parameter pre-norm causal transformer — attention, layernorm, softmax, residuals — trained 400 steps with AdamW, with every gradient magnitude recorded at four snapshots.
+
+!!! note "What is real about it, and what is not"
+    The architecture and the backward pass are real. The **task is synthetic** — a noisy repeating-motif next-token problem, not a corpus — and the model is small, so a larger network's tail reaches lower than this one's. Both limitations, plus two more, are in `recorded_gradient_provenance()["honest_limitations"]` rather than glossed.
+
+    Three separate things are stored: a uniform sample representative of the bulk, the 1,000 smallest kept separately and **explicitly not representative**, and exact counts below eleven thresholds computed on every gradient *before* any sampling. For "what fraction is below X", use the exact counts — a uniform sample cannot answer a question about a 0.03% tail.
+
+### `loss_scaling_equivalence` — is a bias shift just loss scaling?
+
+```python
+from shapesandstrides.formats import loss_scaling_equivalence, recorded_gradients
+
+r = loss_scaling_equivalence(cb, bias_shift=5, values=recorded_gradients())
+r.equivalent, r.differing        # True, 0
+```
+
+Measured across 14,005 values and six shift sizes: **bit-identical.** The full result, and what it does *not* prove, is in [Findings](formats-findings.md#a-bias-shift-is-loss-scaling-for-free).
+
+## Findings
+
+The measured results this subpackage has produced so far — including one where a labelled assumption produced a confident wrong answer — are collected in **[Findings](formats-findings.md)**.
 
 ## Credit
 

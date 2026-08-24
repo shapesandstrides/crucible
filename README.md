@@ -36,7 +36,14 @@ round_trip(1e-8, into=[FLOAT16, BFLOAT16])
 
 CPU only, no GPU needed. The simulator is validated bit-for-bit against torch's own fp16, bf16 and fp32 before any result is believed, and every result carries a grade saying whether it was. Built on [`gfloat`](https://github.com/graphcore-research/gfloat) (MIT).
 
-See the [formats guide](https://docs.shapesandstrides.com/guide/formats/) and [reconstructing cbfloat16](https://docs.shapesandstrides.com/guide/formats-cbfloat16/).
+Some of what it has already measured, on 841,471 gradients recorded from a real transformer backward pass:
+
+- **Summing 1,000 values in bf16 loses 68% of the answer.** Accumulator stagnation — once the running total is large enough, each new addend falls below its ULP and is discarded.
+- **fp16 silently zeroes 771 real gradients; a 6-exponent/9-mantissa format at the conventional bias zeroes 27.** A five-notch bias shift zeroes none.
+- **Shifting the exponent bias by N is bit-identical to loss-scaling by 2ⁿ**, across 14,005 values and six shift sizes — and the bias shift is free, because the bias is only what you subtract when reading an exponent.
+- **A clearly-labelled assumption still produced a confident wrong conclusion**, and only replacing it with a recording found that out.
+
+See the [formats guide](https://docs.shapesandstrides.com/guide/formats/), [reconstructing cbfloat16](https://docs.shapesandstrides.com/guide/formats-cbfloat16/), and [findings](https://docs.shapesandstrides.com/guide/formats-findings/).
 
 ### Host probe
 
