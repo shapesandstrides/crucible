@@ -6,25 +6,34 @@ the arithmetic even starts.
 
 ## The honesty problem, stated in the open
 
-What this measures is **storage precision only**: inputs are rounded into the
-format, the calculation itself runs exactly in double precision, and the result
-is rounded into the format again. Real hardware rounds *every intermediate*, so
-real error is worse than what this reports.
+There are two models of "computing in a format", and they give very different
+answers, so which one produced a number has to travel with it.
 
-That means every number here is a **lower bound**. It is genuinely useful --
-silent underflow happens at storage time, so the loss census is exact, and the
-loss census is the signal the bias question turns on -- but it is not a model of
-a datacenter part's arithmetic, and a reader who assumed otherwise would be
-misled.
+**STORAGE_ONLY** rounds the inputs and the output and computes exactly in
+between. Real hardware rounds every intermediate, so numbers from this model are
+a **lower bound** on real error. Worse, they do not grow with the length of a
+reduction -- a 10-term and a 10,000-term sum report the same figure, which is
+plainly wrong. It remains the default only because changing a default silently
+restates every result anyone already has.
 
-So ``QuantizationModel`` is recorded on every result, and it has exactly one
-member. Following the same rule as ``ValueClass`` and ``CheckKind``: a member is
-added only when a code path can emit it. The single member is the label; it is
-also the honest admission of what is missing.
+**EVERY_STEP** rounds after each elementary operation, the way silicon does.
+This is the model that shows error compounding through a reduction. It needs an
+op that accepts a ``q`` parameter; ``ops.py`` provides them.
+
+The gap between the two is not noise -- it is precisely the error storage-only
+was concealing. The silent-loss census, by contrast, is exact under both models:
+values are destroyed at storage time, before any arithmetic happens.
+
+So ``QuantizationModel`` is recorded on every result, and the caller chooses.
+``EVERY_STEP`` rounds after each elementary operation, the way silicon does, and
+is available for any op that accepts a ``q`` parameter (see ``ops.py``). The
+difference between the two models is itself informative: it is exactly the error
+that storage-only was hiding.
 """
 
 from __future__ import annotations
 
+import inspect
 import math
 import random
 from enum import Enum
@@ -46,12 +55,17 @@ class QuantizationModel(str, Enum):
         reported error is a lower bound on real hardware. The silent-loss
         census, however, is exact -- values are lost at storage time.
 
-    There is deliberately no EVERY_STEP member yet, because no code path here
-    can produce one. When step-wise rounding is implemented it gets a member;
-    until then, promising one in the JSON would be a lie.
+    EVERY_STEP: rounded after every elementary operation, the way silicon does.
+        Requires an op that accepts a `q` parameter -- see `ops.py`. This is the
+        honest model for error growth through a reduction; STORAGE_ONLY reports
+        the same figure however long the sum, which is plainly wrong.
+
+    STORAGE_ONLY remains the default: changing it would silently restate every
+    result anyone had already recorded.
     """
 
     STORAGE_ONLY = "storage_only"
+    EVERY_STEP = "every_step"
 
 
 class SilentLoss(BaseModel):
@@ -133,6 +147,15 @@ def _quantize(values: Sequence[float], fi: gfloat.FormatInfo, rnd) -> tuple[list
     )
 
 
+def _quantizer(fi: gfloat.FormatInfo, rnd) -> Callable[[float], float]:
+    """A rounding function for one format, for ops to apply after every step."""
+
+    def q(v: float) -> float:
+        return gfloat.round_float(fi, float(v), rnd, sat=False)
+
+    return q
+
+
 def _as_list(x: float | Sequence[float]) -> list[float]:
     if isinstance(x, (int, float)):
         return [float(x)]
@@ -145,6 +168,7 @@ def error_over(
     fmt: FormatSpec,
     *,
     rounding: gfloat.RoundMode = gfloat.RoundMode.TiesToEven,
+    model: QuantizationModel = QuantizationModel.STORAGE_ONLY,
     seed: int = 0xC0FFEE,
     tier: FormatTier = FormatTier.B,
 ) -> ErrorDistribution:
@@ -179,9 +203,26 @@ def error_over(
         became_nan=sum(l.became_nan for l in losses),
     )
 
+    # The reference is always exact: the question is what the format cost,
+    # compared to not using it.
     reference = _as_list(fn(*inputs))
-    got_exact = _as_list(fn(*quantized_inputs))
-    got, output_loss = _quantize(got_exact, fi, rounding)
+
+    if model is QuantizationModel.EVERY_STEP:
+        if "q" not in inspect.signature(fn).parameters:
+            raise ValueError(
+                f"{getattr(fn, '__name__', fn)!r} cannot round its intermediates: "
+                f"it takes no 'q' parameter, so EVERY_STEP is not available for "
+                f"it. Use one of the ops in shapesandstrides.formats.ops, give "
+                f"your function a 'q' parameter applied after each operation, or "
+                f"pass model=QuantizationModel.STORAGE_ONLY and read the result "
+                f"as a lower bound."
+            )
+        q = _quantizer(fi, rounding)
+        computed = _as_list(fn(*quantized_inputs, q=q))
+    else:
+        computed = _as_list(fn(*quantized_inputs))
+
+    got, output_loss = _quantize(computed, fi, rounding)
 
     rel: list[float] = []
     for want, have in zip(reference, got):
@@ -205,7 +246,7 @@ def error_over(
     lo, hi = bootstrap_ci(rel, seed=seed)
     return ErrorDistribution(
         format_name=fmt.name,
-        quantization_model=QuantizationModel.STORAGE_ONLY,
+        quantization_model=model,
         n=len(reference),
         p50_rel_error=percentile(rel, 0.50),
         p90_rel_error=percentile(rel, 0.90),
