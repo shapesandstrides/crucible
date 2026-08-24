@@ -18,6 +18,8 @@ from shapesandstrides.formats.error import (
     SilentLoss,
     error_over,
     gradient_like,
+    recorded_gradient_provenance,
+    recorded_gradients,
 )
 from shapesandstrides.formats.grade import FormatTier
 from shapesandstrides.formats.roundtrip import (
@@ -56,6 +58,8 @@ __all__ = [
     "ValueSet",
     "error_over",
     "gradient_like",
+    "recorded_gradient_provenance",
+    "recorded_gradients",
     "ieee_bias",
     "round_trip",
     "sweep",

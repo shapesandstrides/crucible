@@ -24,19 +24,17 @@ The gap between the two is not noise -- it is precisely the error storage-only
 was concealing. The silent-loss census, by contrast, is exact under both models:
 values are destroyed at storage time, before any arithmetic happens.
 
-So ``QuantizationModel`` is recorded on every result, and the caller chooses.
-``EVERY_STEP`` rounds after each elementary operation, the way silicon does, and
-is available for any op that accepts a ``q`` parameter (see ``ops.py``). The
-difference between the two models is itself informative: it is exactly the error
-that storage-only was hiding.
+Whichever model produced a number, that model is recorded on the result.
 """
 
 from __future__ import annotations
 
 import inspect
+import json
 import math
 import random
 from enum import Enum
+from pathlib import Path
 from typing import Callable, Sequence
 
 import gfloat
@@ -127,6 +125,75 @@ def gradient_like(n: int, *, seed: int = 0xC0FFEE) -> list[float]:
         sign = 1.0 if rng.random() < 0.5 else -1.0
         out.append(sign * (10.0**exponent))
     return out
+
+
+_GRADIENT_FIXTURE = Path(__file__).parent / "data" / "gradient_magnitudes.json"
+_gradient_cache: dict | None = None
+
+
+def _load_gradient_fixture() -> dict:
+    global _gradient_cache
+    if _gradient_cache is None:
+        if not _GRADIENT_FIXTURE.exists():
+            raise FileNotFoundError(
+                f"the recorded gradient fixture is missing from {_GRADIENT_FIXTURE}. "
+                f"Regenerate it with `python scripts/record_gradients.py` (needs "
+                f"torch; a GPU is optional), or use gradient_like() and read the "
+                f"result as resting on an assumption."
+            )
+        _gradient_cache = json.loads(_GRADIENT_FIXTURE.read_text(encoding="utf-8"))
+    return _gradient_cache
+
+
+def recorded_gradient_provenance() -> dict:
+    """Everything known about how the recorded gradients were obtained.
+
+    Including what is wrong with them. A fixture that cannot state its own
+    limitations is worse than a guess that is labelled as one, because it
+    borrows the authority of a measurement without earning it.
+    """
+    return _load_gradient_fixture()
+
+
+def recorded_gradients(step: int | None = None, *, tail: bool = False) -> list[float]:
+    """Magnitudes of real gradients from a real backward pass.
+
+    Recorded from a small pre-norm causal transformer -- attention, layernorm,
+    softmax, residuals -- trained with AdamW, by
+    ``scripts/record_gradients.py``. The architecture and the backward pass are
+    real; the *task* is synthetic, and the model is small. Both limitations are
+    recorded in ``recorded_gradient_provenance()`` rather than glossed.
+
+    Prefer this to ``gradient_like`` for anything load-bearing. A log-uniform
+    spread has no tail, and the tail is what the loss-scaling question turns on:
+    these reach roughly two orders of magnitude lower.
+
+    ``step`` selects one training snapshot. The distribution moves as a model
+    converges -- late gradients are smaller -- so a caller studying that needs
+    to choose. The default pools every snapshot.
+
+    ``tail=True`` returns the extreme low tail instead of a uniform sample.
+    **It is not representative** and must never be treated as a distribution:
+    uniform sampling cannot preserve a tail this thin (0.03% of gradients lie
+    below 1e-11), so studying the tail needs its own sample. For "what fraction
+    is below X", use the exact counts in ``recorded_gradient_provenance()``,
+    which are computed on every gradient before any sampling.
+    """
+    key = "smallest" if tail else "magnitudes"
+    data = _load_gradient_fixture()
+    snaps = data["snapshots"]
+    if step is None:
+        out: list[float] = []
+        for s in snaps:
+            out.extend(s[key])
+        return out
+    for s in snaps:
+        if s["step"] == step:
+            return list(s[key])
+    raise ValueError(
+        f"no gradients recorded at step {step}. Recorded steps: "
+        f"{[s['step'] for s in snaps]}."
+    )
 
 
 def _quantize(values: Sequence[float], fi: gfloat.FormatInfo, rnd) -> tuple[list[float], SilentLoss]:
