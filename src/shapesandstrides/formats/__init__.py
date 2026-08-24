@@ -29,6 +29,7 @@ from shapesandstrides.formats.spec import (
     Provenance,
     ieee_bias,
 )
+from shapesandstrides.formats.validate import ValidationReport, validate
 from shapesandstrides.formats.values import ValueClass, ValueSet, values_for
 
 __all__ = [
@@ -37,10 +38,12 @@ __all__ = [
     "Outcome",
     "RoundTripReport",
     "Provenance",
+    "ValidationReport",
     "ValueClass",
     "ValueSet",
     "ieee_bias",
     "round_trip",
+    "validate",
     "values_for",
     "FLOAT64",
     "FLOAT32",
