@@ -117,7 +117,8 @@ class KernelItem(pytest.Item):
     def _describe(self, r) -> str:
         lines = [
             f"kernel {self.name!r} is INCORRECT",
-            f"  oracle       {r.oracle_kind.value}:{r.oracle_label}",
+            # Tier first: it is what says how much a verdict means.
+            f"  oracle       {r.oracle_tier.value}:{r.oracle_kind.value}:{r.oracle_label}",
             f"  shapes       {r.total - r.failed_count}/{r.total} passed",
         ]
         m = r.minimal_failure

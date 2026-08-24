@@ -60,3 +60,16 @@ def test_environment_fingerprint_equality_ignores_nothing_relevant():
     b = a.model_copy()
     assert a.matches(b)
     assert not a.matches(b.model_copy(update={"triton_version": "3.6.0"}))
+
+
+def test_the_tiers_are_importable_from_the_package_root():
+    """A caller who reads report.oracle_tier has to compare it against
+    something. MeasurementTier is exported for exactly that reason, and an
+    enum you must deep-import to use is an enum people will compare by
+    string instead."""
+    import shapesandstrides as sas
+
+    assert sas.OracleTier.A in sas.OracleTier
+    assert sas.CheckKind.REFERENCE in sas.CheckKind
+    for name in ("OracleTier", "CheckKind"):
+        assert name in sas.__all__, f"{name} is reachable but undeclared"

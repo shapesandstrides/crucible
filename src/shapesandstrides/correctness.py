@@ -25,6 +25,7 @@ from shapesandstrides.oracle import (
 )
 from shapesandstrides.shapes import ShapeSpec, ShapeTier, generate_shapes
 from shapesandstrides.tolerance import tolerance_for
+from shapesandstrides.types import CheckKind, OracleTier
 
 DEFAULT_SEED = 0xC0FFEE
 
@@ -41,10 +42,16 @@ class ShapeOutcome(BaseModel):
 
 
 class CorrectnessReport(BaseModel):
-    # What kind of answer key produced this verdict. Recorded rather than
-    # inferred, so a weak oracle can never be mistaken for a strong one.
-    oracle_kind: OracleKind = OracleKind.NONE
-    oracle_label: str = "none"
+    # What kind of answer key produced this verdict, and how strong a claim it
+    # supports. Recorded rather than inferred, and required rather than
+    # defaulted: a default would let a report omit the tier and still present
+    # itself as a verdict, which is the exact confusion these fields exist to
+    # prevent.
+    oracle_kind: OracleKind
+    oracle_label: str
+    oracle_tier: OracleTier
+    # Which check families actually ran. Unordered on purpose -- see CheckKind.
+    checks: list[CheckKind] = []
 
     outcomes: list[ShapeOutcome] = []
     passed: bool = True
@@ -52,6 +59,15 @@ class CorrectnessReport(BaseModel):
     failed_count: int = 0
     minimal_failure: ShapeOutcome | None = None
     replay_command: str = ""
+
+    @property
+    def is_correctness_valid(self) -> bool:
+        """Whether `passed` means "correct" or only "did not contradict itself".
+
+        Mirrors TimingResult.is_performance_valid: tier C is not a failure, it
+        is the absence of a verdict.
+        """
+        return self.oracle_tier is not OracleTier.C
 
 
 def shrink_to_minimal(failures: list[ShapeOutcome]) -> ShapeOutcome | None:
@@ -183,6 +199,8 @@ def check(
     return CorrectnessReport(
         oracle_kind=ref.kind,
         oracle_label=ref.label,
+        oracle_tier=ref.tier,
+        checks=[CheckKind.REFERENCE],
         outcomes=outcomes,
         passed=not failures,
         total=len(outcomes),

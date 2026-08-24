@@ -7,7 +7,14 @@ from shapesandstrides.metrics import DeviceInfo, MemoryMetrics, RuntimeContext
 from shapesandstrides.oracle import OracleResult
 from shapesandstrides.records import RunRecord, list_runs, load_run, new_run_id, save_run
 from shapesandstrides.shapes import ShapeSpec
-from shapesandstrides.types import ComparisonResult, MeasurementTier, TimingResult
+from shapesandstrides.reference import OracleKind
+from shapesandstrides.types import (
+    CheckKind,
+    ComparisonResult,
+    MeasurementTier,
+    OracleTier,
+    TimingResult,
+)
 
 
 def _record(**kw):
@@ -109,6 +116,10 @@ def test_a_record_with_a_shape_mismatch_round_trips(tmp_path):
         outputs=[mismatch],
     )
     correctness = CorrectnessReport(
+        oracle_kind=OracleKind.TORCH_OP,
+        oracle_label="torch.add",
+        oracle_tier=OracleTier.A,
+        checks=[CheckKind.REFERENCE],
         outcomes=[outcome],
         passed=False,
         total=1,
@@ -160,6 +171,10 @@ def test_a_fully_populated_record_round_trips(tmp_path):
         outputs=[good],
     )
     correctness = CorrectnessReport(
+        oracle_kind=OracleKind.TORCH_OP,
+        oracle_label="torch.add",
+        oracle_tier=OracleTier.A,
+        checks=[CheckKind.REFERENCE],
         outcomes=[outcome], passed=True, total=1, failed_count=0,
     )
     candidate = _timing_result(1.0)

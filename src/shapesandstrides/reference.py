@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable
 
+from shapesandstrides.types import OracleTier
+
 MAX_PROBE_ARITY = 4
 
 
@@ -46,12 +48,40 @@ class OracleKind(str, Enum):
     NONE = "none"
 
 
+# Which tier each provenance earns. Explicit rather than computed: a new
+# OracleKind must not be able to inherit the strongest tier by omission.
+_KIND_TO_TIER = {
+    OracleKind.TORCH_OP: OracleTier.A,
+    OracleKind.EXPRESSION: OracleTier.A,
+    OracleKind.USER_CALLABLE: OracleTier.B,
+    OracleKind.NONE: OracleTier.C,
+}
+
+
 @dataclass(frozen=True)
 class ResolvedReference:
     kind: OracleKind
     label: str
     fn: Callable | None = None
     arity: int | None = None
+
+    @property
+    def tier(self) -> OracleTier:
+        """The strength of any verdict this reference can support.
+
+        TORCH_OP and EXPRESSION are both tier A: in either case every
+        arithmetic operation in the answer key is PyTorch's own. A hand-written
+        callable is tier B because its arithmetic is the caller's, and having
+        nothing at all is tier C.
+        """
+        try:
+            return _KIND_TO_TIER[self.kind]
+        except KeyError:  # pragma: no cover - guards a future enum member
+            raise NotImplementedError(
+                f"OracleKind.{self.kind.name} has no tier. Add it to "
+                f"_KIND_TO_TIER deliberately; defaulting a new kind to a tier "
+                f"would let a weak oracle present itself as a strong one."
+            ) from None
 
     @property
     def available(self) -> bool:

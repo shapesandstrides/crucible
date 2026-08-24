@@ -11,8 +11,10 @@ import math
 import pytest
 import torch
 
+from shapesandstrides.types import OracleTier
 from shapesandstrides.reference import (
     OracleKind,
+    ResolvedReference,
     ReferenceResolutionError,
     infer_arity,
     probe_arity,
@@ -147,3 +149,44 @@ def test_resolve_populates_arity_for_a_torch_op():
     # This is the payoff: the user should never have to tell us n_inputs.
     assert resolve("torch.add").arity == 2
     assert resolve("torch.relu").arity == 1
+
+
+# ------------------------------------------------------- oracle tier (grade)
+#
+# The tier answers one question: how much can a verdict produced by this
+# reference claim? It ranks the trustworthiness of the answer key's own
+# arithmetic, and nothing else. Whether the caller picked the *right* function
+# to compare against is unknowable to us and identical across every kind, so
+# the tier must not pretend to measure it.
+
+
+def test_a_torch_operator_is_the_strongest_oracle():
+    assert resolve("torch.add").tier is OracleTier.A
+
+
+def test_a_torch_expression_is_as_strong_as_a_torch_operator():
+    """Every arithmetic operation inside the lambda is PyTorch's own, run in
+    fp64. Composing them is the caller's, but so is choosing 'torch.add' over
+    'torch.sub' — that risk is constant and is not what the tier measures."""
+    assert resolve(lambda x, y: torch.add(x, y)).tier is OracleTier.A
+
+
+def test_a_user_callable_is_a_weaker_oracle_than_torch():
+    """Agreement with a reference we cannot vouch for supports only 'these two
+    agree', not 'this is correct'."""
+
+    def my_prototype(x, y):
+        return x + y
+
+    assert resolve(my_prototype).tier is OracleTier.B
+
+
+def test_no_reference_supports_no_correctness_verdict_at_all():
+    assert resolve(None).tier is OracleTier.C
+
+
+def test_every_oracle_kind_maps_to_a_tier():
+    """A new OracleKind must not silently fall through to the strongest tier."""
+    for kind in OracleKind:
+        ref = ResolvedReference(kind=kind, label="x")
+        assert isinstance(ref.tier, OracleTier), f"{kind} has no tier"

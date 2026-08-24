@@ -172,6 +172,56 @@ EXIT_FAILED = 1
 EXIT_NOTHING_FOUND = 5  # mirrors pytest's "no tests collected"
 
 
+def _oracle_cell(report) -> str:
+    """Tier first, because it is the part that says how much the verdict means.
+
+    A tier-C pass and a tier-A pass are different claims, and a reader who sees
+    only the label will assume the stronger one.
+    """
+    return f"{report.oracle_tier.value}:{report.oracle_kind.value}:{report.oracle_label}"
+
+
+def _verify_json(name: str, report, error: str | None) -> dict:
+    """One kernel's result, machine-readable.
+
+    `verdict` is a three-way string rather than a boolean: ERROR (never
+    adjudicated) is not INCORRECT (adjudicated and wrong), and collapsing them
+    would violate rule 7. An ERROR carries no tier because no verdict exists
+    to grade.
+
+    Deliberately omits report.replay_command: `shapesandstrides replay` is not
+    a command. It is already printed on the human path, which is a known
+    defect, and repeating it here would plant the same false affordance in
+    machine-readable output where something will act on it. minimal_failure
+    carries the shape and the seed, which is the same information without the
+    broken promise.
+    """
+    if error is not None:
+        return {
+            "kernel": name, "verdict": "ERROR",
+            "oracle_tier": None, "oracle_kind": None, "oracle_label": None,
+            "checks": [], "correctness_valid": False,
+            "shapes_passed": 0, "shapes_total": 0,
+            "minimal_failure": None, "error": error,
+        }
+    return {
+        "kernel": name,
+        "verdict": "CORRECT" if report.passed else "INCORRECT",
+        "oracle_tier": report.oracle_tier.value,
+        "oracle_kind": report.oracle_kind.value,
+        "oracle_label": report.oracle_label,
+        "checks": [c.value for c in report.checks],
+        "correctness_valid": report.is_correctness_valid,
+        "shapes_passed": report.total - report.failed_count,
+        "shapes_total": report.total,
+        "minimal_failure": (
+            report.minimal_failure.model_dump(mode="json")
+            if report.minimal_failure else None
+        ),
+        "error": None,
+    }
+
+
 @app.command()
 def verify(
     target: Path = typer.Argument(
@@ -180,6 +230,7 @@ def verify(
     device: str = typer.Option(None, "--device", help="Override the decorator's device."),
     tier: str = typer.Option(None, "--tier", help="Override the shape tier (fast/canonical/full)."),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only print failures."),
+    as_json: bool = typer.Option(False, "--json", help="Emit machine-readable output."),
 ):
     """Verify every @verify-marked kernel under TARGET.
 
@@ -190,22 +241,63 @@ def verify(
     from shapesandstrides.shapes import ShapeTier
     from shapesandstrides.verify import discover_in_path, spec_of, verify_kernel
 
+    def _emit_nothing_found(message: str) -> None:
+        """Exit 5, in whichever format the caller asked for.
+
+        Under --json this still has to be JSON. Printing prose on stdout would
+        force whoever is parsing it to read an error out of a sentence.
+        """
+        if as_json:
+            print(json.dumps(
+                {"kernels": [], "device": device or "?", "failed": 0,
+                 "exit_code": EXIT_NOTHING_FOUND, "message": message},
+                indent=2,
+            ))
+        else:
+            console.print(message)
+        raise typer.Exit(EXIT_NOTHING_FOUND)
+
     try:
         found = discover_in_path(target)
     except FileNotFoundError as e:
-        console.print(f"[red]{e}[/red]")
-        raise typer.Exit(EXIT_NOTHING_FOUND)
+        _emit_nothing_found(f"[red]{e}[/red]" if not as_json else str(e))
 
     if not found:
         # Deliberately not a pass. Pointing the gate at the wrong path and
         # getting a green tick is the worst possible outcome here.
-        console.print(
+        _emit_nothing_found(
+            f"No @verify-marked kernels found under {target}. "
+            f"Mark a kernel with @verify(against=...) so it can be checked."
+            if as_json else
             f"[yellow]No @verify-marked kernels found under {target}.[/yellow]\n"
             f"[dim]Mark a kernel with @verify(against=...) so it can be checked.[/dim]"
         )
-        raise typer.Exit(EXIT_NOTHING_FOUND)
 
     resolved_tier = ShapeTier(tier) if tier else None
+
+    # Run everything first, render second. The two output formats then cannot
+    # drift apart, and neither can decide a verdict the other would not.
+    results = []
+    for name, fn in found:
+        try:
+            results.append((name, verify_kernel(fn, device=device, tier=resolved_tier), None))
+        except Exception as e:
+            # The kernel never got adjudicated at all: no report, so no tier
+            # and no verdict. ERROR, not INCORRECT (rule 7).
+            results.append((name, None, f"{type(e).__name__}: {e}"))
+
+    failures = sum(1 for _, r, err in results if err is not None or not r.passed)
+    dev = device or spec_of(found[0][1]).device
+    exit_code = EXIT_FAILED if failures else EXIT_OK
+
+    if as_json:
+        print(json.dumps({
+            "kernels": [_verify_json(name, r, err) for name, r, err in results],
+            "device": dev,
+            "failed": failures,
+            "exit_code": exit_code,
+        }, indent=2))
+        raise typer.Exit(exit_code)
 
     table = Table(box=None, pad_edge=False)
     table.add_column("kernel")
@@ -214,38 +306,24 @@ def verify(
     table.add_column("oracle")
     table.add_column("minimal failing case")
 
-    failures = 0
-    for name, fn in found:
-        try:
-            report = verify_kernel(fn, device=device, tier=resolved_tier)
-        except Exception as e:
-            failures += 1
-            table.add_row(name, "[red]ERROR[/red]", "-", "-", f"{type(e).__name__}: {e}")
+    for name, report, err in results:
+        if err is not None:
+            table.add_row(name, "[red]ERROR[/red]", "-", "-", err)
             continue
-
-        ok = report.total - report.failed_count
-        if report.passed:
-            verdict = "[green]CORRECT[/green]"
-            minimal = ""
-        else:
-            failures += 1
-            verdict = "[red]INCORRECT[/red]"
-            minimal = report.minimal_failure.spec.label if report.minimal_failure else "?"
-
         if report.passed and quiet:
             continue
         table.add_row(
             name,
-            verdict,
-            f"{ok}/{report.total}",
-            f"{report.oracle_kind.value}:{report.oracle_label}",
-            minimal,
+            "[green]CORRECT[/green]" if report.passed else "[red]INCORRECT[/red]",
+            f"{report.total - report.failed_count}/{report.total}",
+            _oracle_cell(report),
+            "" if report.passed
+            else (report.minimal_failure.spec.label if report.minimal_failure else "?"),
         )
 
     console.print(table)
-    dev = device or (spec_of(found[0][1]).device if found else "?")
     console.print(
         f"\n{len(found)} kernel(s) on device={dev}, "
         f"[{'red' if failures else 'green'}]{failures} failed[/]"
     )
-    raise typer.Exit(EXIT_FAILED if failures else EXIT_OK)
+    raise typer.Exit(exit_code)
