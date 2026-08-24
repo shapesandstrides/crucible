@@ -65,7 +65,7 @@ class DispatchTrace(BaseModel):
 def collect_device_info(device: int = 0) -> DeviceInfo:
     import torch
 
-    from sns.env import arch_family
+    from shapesandstrides.env import arch_family
 
     # Toolchain versions are available with or without a device.
     triton_version = None

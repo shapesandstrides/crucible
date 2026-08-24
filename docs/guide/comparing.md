@@ -1,9 +1,9 @@
 # Comparing
 
-`sns.compare()` measures a candidate against a baseline and returns a [`ComparisonResult`][sns.ComparisonResult].
+`shapesandstrides.compare()` measures a candidate against a baseline and returns a [`ComparisonResult`][shapesandstrides.ComparisonResult].
 
 ```python
-c = sns.compare(
+c = shapesandstrides.compare(
     lambda: my_kernel(x, y),   # candidate
     lambda: x + y,             # baseline
 )
@@ -74,7 +74,7 @@ Until then: treat sub-5% differences on unlocked hardware as unproven, whatever 
 
 ```python
 def test_kernel_is_faster():
-    c = sns.compare(lambda: my_kernel(x, y), lambda: x + y)
+    c = shapesandstrides.compare(lambda: my_kernel(x, y), lambda: x + y)
 
     if not c.is_performance_valid:
         pytest.skip(f"tier {c.tier.value}")

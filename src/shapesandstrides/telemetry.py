@@ -56,7 +56,7 @@ class ClockSampler:
         HwThermalSlowdown with HwPowerBrakeSlowdown and so is not the
         unambiguous hardware-thermal signal by itself. Only the specific
         thermal bit gates; everything else is metadata sampled separately
-        from the before/after nvidia-smi snapshot in sns.timing.
+        from the before/after nvidia-smi snapshot in shapesandstrides.timing.
         """
         if not self.available:
             return None

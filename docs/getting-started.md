@@ -46,11 +46,11 @@ That output is a normal, expected result on a laptop or any consumer card. It do
 
 ```python
 import torch
-import sns
+import shapesandstrides
 
 a = torch.randn(4096, 4096, device="cuda", dtype=torch.float16)
 
-t = sns.measure(lambda: a @ a)
+t = shapesandstrides.measure(lambda: a @ a)
 
 print(f"{t.median_ms:.4f} ms  95% CI [{t.ci95_lo_ms:.4f}, {t.ci95_hi_ms:.4f}]  n={t.n}  tier {t.tier.value}")
 ```
@@ -64,12 +64,12 @@ print(f"{t.median_ms:.4f} ms  95% CI [{t.ci95_lo_ms:.4f}, {t.ci95_hi_ms:.4f}]  n
 
 ```python
 import torch
-import sns
+import shapesandstrides
 
 x = torch.randn(4_194_304, device="cuda")
 y = torch.randn(4_194_304, device="cuda")
 
-c = sns.compare(
+c = shapesandstrides.compare(
     lambda: my_triton_add(x, y),   # candidate
     lambda: x + y,                  # baseline
 )
@@ -85,12 +85,12 @@ The library is the engine, so it drops straight into an existing test suite:
 
 ```python
 import pytest
-import sns
+import shapesandstrides
 
 
 @pytest.mark.gpu
 def test_my_kernel_beats_torch():
-    c = sns.compare(lambda: my_kernel(x, y), lambda: x + y)
+    c = shapesandstrides.compare(lambda: my_kernel(x, y), lambda: x + y)
 
     if not c.is_performance_valid:
         pytest.skip(f"tier {c.tier.value}: measurement too unstable to judge")

@@ -6,18 +6,19 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from sns.correctness import check
-from sns.env import is_cuda_device
-from sns.metrics import (
+from shapesandstrides.correctness import check
+from shapesandstrides.env import is_cuda_device
+from shapesandstrides.metrics import (
     collect_device_info,
     collect_memory_metrics,
     collect_runtime_context,
     trace_dispatch,
 )
-from sns.oracle import make_inputs
-from sns.records import RunRecord, new_run_id, save_run
-from sns.shapes import ShapeTier, generate_shapes
-from sns.timing import compare
+from shapesandstrides.oracle import make_inputs
+from shapesandstrides.reference import resolve
+from shapesandstrides.records import RunRecord, new_run_id, save_run
+from shapesandstrides.shapes import ShapeTier, generate_shapes
+from shapesandstrides.timing import compare
 
 
 def _hash_callable(fn: Callable) -> str:
@@ -67,13 +68,13 @@ def _device_index(device: str) -> int:
 
 def run_test(
     kernel: Callable,
-    reference: Callable,
+    reference: object,
     kernel_name: str,
     op_name: str = "unknown",
     tier: ShapeTier = ShapeTier.FAST,
     dtypes: list[str] | None = None,
     seed: int = 0xC0FFEE,
-    n_inputs: int = 2,
+    n_inputs: int | None = None,
     device: str = "cuda",
     time_it: bool = True,
     warmup: int = 200,
@@ -101,9 +102,15 @@ def run_test(
     started = time.time()
     dtypes = dtypes or ["float16", "float32"]
 
+    # Resolve once, here, so the correctness oracle and the timing baseline
+    # are provably the same callable. Resolving twice would let them drift.
+    ref = resolve(reference)
+    if n_inputs is None:
+        n_inputs = ref.arity or 2
+
     correctness = check(
         kernel,
-        reference=reference,
+        reference=ref,
         tier=tier,
         dtypes=dtypes,
         seed=seed,
@@ -145,12 +152,12 @@ def run_test(
                     )
                     comparison = compare(
                         lambda: kernel(*inputs),
-                        lambda: reference(*inputs),
+                        lambda: ref.fn(*inputs),
                         warmup=warmup,
                         iters=iters,
                         device=_device_index(device),
                     )
-                    dispatch = trace_dispatch(lambda: reference(*inputs))
+                    dispatch = trace_dispatch(lambda: ref.fn(*inputs))
             except Exception as e:
                 timing_note = f"timing failed: {type(e).__name__}: {e}"
 

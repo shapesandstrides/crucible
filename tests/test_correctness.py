@@ -2,8 +2,17 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from sns.correctness import CorrectnessReport, ShapeOutcome, check, shrink_to_minimal
-from sns.shapes import ShapeSpec, ShapeTier
+from pydantic import ValidationError
+
+from shapesandstrides.correctness import (
+    CorrectnessReport,
+    ShapeOutcome,
+    check,
+    shrink_to_minimal,
+)
+from shapesandstrides.reference import OracleKind
+from shapesandstrides.types import CheckKind, OracleTier
+from shapesandstrides.shapes import ShapeSpec, ShapeTier
 
 requires_gpu = pytest.mark.skipif(
     not torch.cuda.is_available(), reason="needs a CUDA device"
@@ -64,7 +73,7 @@ def test_tiles_argument_reaches_generate_shapes_through_check():
     could not change the shape space reaching a kernel through the public
     entry point, even though generate_shapes itself already supported it.
     Runs on CPU: no GPU needed to prove the argument gets threaded through."""
-    from sns.tiles import TileSpace
+    from shapesandstrides.tiles import TileSpace
 
     def spy_factory(collector):
         def fn(a, b):
@@ -136,7 +145,7 @@ def test_a_wrong_kernel_fails_with_a_minimal_case_and_a_seed():
     assert r.failed_count > 0
     assert r.minimal_failure is not None
     assert r.minimal_failure.seed is not None
-    assert "sns replay" in r.replay_command
+    assert "shapesandstrides replay" in r.replay_command
 
 
 @requires_gpu
@@ -247,3 +256,86 @@ def test_a_kernel_that_returns_garbage_fails_every_shape():
     )
     assert not r.passed
     assert r.failed_count == r.total, "every shape should fail for a constant-garbage kernel"
+
+
+# -------------------------------------------------- the oracle tier on a report
+#
+# A verdict that does not say what adjudicated it is the failure mode this
+# whole field exists to prevent: three very different claims ("matches
+# PyTorch", "matches your own prototype", "did not contradict itself") all
+# rendering as an identical PASS.
+
+
+def _passing_report(**overrides):
+    base = dict(
+        oracle_kind=OracleKind.TORCH_OP,
+        oracle_label="torch.add",
+        oracle_tier=OracleTier.A,
+        checks=[CheckKind.REFERENCE],
+        outcomes=[],
+        passed=True,
+        total=0,
+        failed_count=0,
+    )
+    base.update(overrides)
+    return CorrectnessReport(**base)
+
+
+def test_a_report_cannot_be_built_without_an_oracle_tier():
+    """Structural enforcement, in the spirit of TimingResult having no
+    __float__: forgetting the tier must be impossible, not merely discouraged."""
+    with pytest.raises(ValidationError):
+        CorrectnessReport(passed=True, total=1, failed_count=0)
+
+
+def test_the_oracle_fields_have_no_defaults():
+    """A default is exactly the hole this closes -- with one, an untiered
+    report silently claims the value the author happened to pick."""
+    for field in ("oracle_kind", "oracle_label", "oracle_tier"):
+        assert CorrectnessReport.model_fields[field].is_required(), (
+            f"{field} has a default, so a report can omit it and still "
+            f"present itself as a verdict"
+        )
+
+
+def test_a_tier_c_pass_is_not_a_valid_correctness_verdict():
+    r = _passing_report(
+        oracle_kind=OracleKind.NONE, oracle_label="none",
+        oracle_tier=OracleTier.C, checks=[],
+    )
+    assert r.passed is True
+    assert r.is_correctness_valid is False, (
+        "nothing contradicted itself is not the same claim as correct"
+    )
+
+
+def test_tier_a_and_b_are_valid_correctness_verdicts():
+    assert _passing_report(oracle_tier=OracleTier.A).is_correctness_valid is True
+    assert _passing_report(oracle_tier=OracleTier.B).is_correctness_valid is True
+
+
+def test_the_tier_survives_a_json_round_trip():
+    """An agent reads this out of --json, so it has to be there as a string."""
+    dumped = _passing_report().model_dump(mode="json")
+    assert dumped["oracle_tier"] == "A"
+    assert dumped["checks"] == ["reference"]
+
+
+@requires_gpu
+def test_check_records_the_tier_earned_by_its_reference():
+    r = check(torch.add, "torch.add", tier=ShapeTier.FAST, dtypes=["float32"],
+              max_elements=4096)
+    assert r.oracle_tier is OracleTier.A
+    assert r.checks == [CheckKind.REFERENCE]
+
+
+def test_check_records_a_user_callable_as_the_weaker_tier(monkeypatch):
+    def my_prototype(x, y):
+        return x + y
+
+    r = check(my_prototype, my_prototype, tier=ShapeTier.FAST,
+              dtypes=["float32"], max_elements=1024, device="cpu")
+    assert r.oracle_tier is OracleTier.B, (
+        "agreeing with the caller's own code is weaker evidence than agreeing "
+        "with PyTorch, and the report must say so"
+    )

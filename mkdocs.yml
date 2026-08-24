@@ -38,7 +38,7 @@ nav:
       - Testing a kernel: guide/testing.md
       - Measuring: guide/measuring.md
       - Comparing: guide/comparing.md
-      - Measurement tiers: guide/tiers.md
+      - Tiers: guide/tiers.md
       - Choosing a host: guide/hosts.md
       - What this cannot catch: guide/limits.md
   - API reference: reference.md

@@ -1,10 +1,10 @@
 import pytest
 from typer.testing import CliRunner
 
-from sns.cli import app
-from sns.metrics import DeviceInfo
-from sns.records import RunRecord, new_run_id, save_run
-from sns.types import ComparisonResult, MeasurementTier, TimingResult
+from shapesandstrides.cli import app
+from shapesandstrides.metrics import DeviceInfo
+from shapesandstrides.records import RunRecord, new_run_id, save_run
+from shapesandstrides.types import ComparisonResult, MeasurementTier, TimingResult
 
 runner = CliRunner()
 

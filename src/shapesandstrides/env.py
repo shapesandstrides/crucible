@@ -2,7 +2,7 @@
 
 import subprocess
 
-from sns.types import EnvironmentFingerprint
+from shapesandstrides.types import EnvironmentFingerprint
 
 _ARCH_BY_CAP = {
     (7, 0): "Volta",

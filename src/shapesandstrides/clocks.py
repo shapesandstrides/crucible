@@ -2,9 +2,9 @@
 
 from typing import Protocol
 
-from sns.env import _run_smi, smi_query_float
-from sns.stats import cv_percent
-from sns.types import MeasurementTier
+from shapesandstrides.env import _run_smi, smi_query_float
+from shapesandstrides.stats import cv_percent
+from shapesandstrides.types import MeasurementTier
 
 # Above this coefficient of variation the clock moved too much for the
 # window to be trusted at all.

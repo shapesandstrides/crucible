@@ -18,6 +18,51 @@ class MeasurementTier(str, Enum):
     C = "C"
 
 
+class OracleTier(str, Enum):
+    """How strong an answer key produced a correctness verdict.
+
+    Parallel to MeasurementTier, and with the same shape: C means the strong
+    verdict is unavailable, not that it failed.
+
+    A: an independent answer key whose own arithmetic is PyTorch's -- a torch
+       operator, or an expression composed of them, run in float64 on CPU.
+       Supports the claim "this kernel computes the right function".
+    B: an independent answer key containing arithmetic we cannot vouch for --
+       the caller's own callable, prototype or numpy version. Supports only
+       "this kernel agrees with your reference". If the reference is wrong,
+       the agreement is worth nothing.
+    C: no independent answer key. No correctness verdict is valid. Consistency
+       checks may still have run, and a failure among them is a real defect --
+       but a pass means "nothing contradicted itself", not "correct".
+
+    What this ranks is the trustworthiness of the answer key's arithmetic. It
+    deliberately does not rank whether the caller chose the right function to
+    compare against: that is unknowable to us and the risk is identical at
+    every tier, so folding it in would make the grade dishonest.
+    """
+
+    A = "A"
+    B = "B"
+    C = "C"
+
+
+class CheckKind(str, Enum):
+    """A family of check that actually ran.
+
+    Deliberately a set, not a scale. These do not order against each other:
+    config agreement can catch a kernel that breaks at one tile size and a
+    golden baseline never would; a golden baseline catches an output that
+    moved under a torch upgrade and config agreement never would. Ranking
+    them would encode an ordering that is not true, so a report lists what
+    ran and lets the tier carry the one thing that is genuinely ordered.
+
+    Members are added only when a code path can emit them. An enum value no
+    code produces is a false promise to whoever is reading the JSON.
+    """
+
+    REFERENCE = "reference"
+
+
 class TimingResult(BaseModel):
     """A timing measurement.
 

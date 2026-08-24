@@ -1,6 +1,10 @@
-# Measurement tiers
+# Tiers
 
-Every result carries a tier recording how much it can be trusted. Tiers are assigned from observed telemetry, never assumed, and never silently upgraded.
+Every result carries a tier recording how much it can be trusted. Tiers are assigned from observed evidence, never assumed, and never silently upgraded.
+
+There are two, because there are two separate questions. A **measurement tier** says how much a *timing* number can be trusted. An **oracle tier** says how much a *correctness* verdict can be trusted. They are independent: a run can have an untrustworthy speedup and an airtight correctness verdict, or the reverse.
+
+## Measurement tiers
 
 | Tier | Conditions | What it means |
 |---|---|---|
@@ -13,7 +17,7 @@ t.tier                    # MeasurementTier.B
 t.is_performance_valid    # False only for Tier C
 ```
 
-## The problem tiers solve
+## The problem measurement tiers solve
 
 GPU clocks are not constant. They boost, they drop under thermal load, and they get capped by power limits. Timing a kernel while the clock moves measures the clock, not the kernel.
 
@@ -31,20 +35,20 @@ You might expect `nvidia-smi`'s throttle reasons to answer "was this measurement
 
 **The hardware assertions are different.** `hw_thermal_slowdown` and `hw_power_brake_slowdown` stayed `Not Active` throughout testing, including under the sustained load that produced the 495 MHz swing above. Both are asserted by the GPU's own hardware safety circuits, not by driver or vendor software policy, and neither was ever seen stuck. That makes them trustworthy enough to disqualify a window by themselves.
 
-**The rule this settles on:** observed clock variance governs; a hardware-asserted throttle (`hw_thermal_slowdown` or `hw_power_brake_slowdown`) disqualifies a measurement outright; software throttle flags (`sw_power_cap`, `sw_thermal_slowdown`) are recorded on [`TimingResult`][sns.TimingResult] as metadata — `power_capped`, `sw_thermal_flagged` — and never gate the tier. Throttling is checked from any hardware-asserted state in either the before/after snapshot or a per-iteration NVML sample; the gating decision itself lives in [`assign_tier`][sns.clocks.assign_tier].
+**The rule this settles on:** observed clock variance governs; a hardware-asserted throttle (`hw_thermal_slowdown` or `hw_power_brake_slowdown`) disqualifies a measurement outright; software throttle flags (`sw_power_cap`, `sw_thermal_slowdown`) are recorded on [`TimingResult`][shapesandstrides.TimingResult] as metadata — `power_capped`, `sw_thermal_flagged` — and never gate the tier. Throttling is checked from any hardware-asserted state in either the before/after snapshot or a per-iteration NVML sample; the gating decision itself lives in [`assign_tier`][shapesandstrides.clocks.assign_tier].
 
 !!! note "Also handled: throttling that never stops"
     An earlier version compared only a snapshot before the loop against one after, and treated a *difference* as evidence of throttling. A GPU throttled for the entire window produces `before == after == "Active"` — identical snapshots, and a false verdict of "clean." The baseline snapshot is taken *after* warmup, when the card is already loaded, so a sustained workload was precisely the case that got missed. Checking each snapshot independently, plus the per-iteration NVML sample, closes this.
 
 ## Reaching Tier A
 
-Tier A requires a [`LockedClockPolicy`][sns.clocks.LockedClockPolicy] that successfully pinned the clocks *and* verified they held:
+Tier A requires a [`LockedClockPolicy`][shapesandstrides.clocks.LockedClockPolicy] that successfully pinned the clocks *and* verified they held:
 
 ```python
-from sns.clocks import LockedClockPolicy
+from shapesandstrides.clocks import LockedClockPolicy
 
 policy = LockedClockPolicy(target_sm_mhz=1400, power_cap_w=250)
-t = sns.measure(lambda: a @ a, policy=policy)
+t = shapesandstrides.measure(lambda: a @ a, policy=policy)
 assert t.tier is MeasurementTier.A
 ```
 
@@ -61,6 +65,62 @@ Locking clocks is necessary and not sufficient. **Power constraints override man
 
 This makes power headroom a hardware selection criterion. A 72 W card has nowhere to hide — you cannot pin clocks meaningfully below a limit you're already against. A 150 W or 350 W card lets you pin well under maximum so power never becomes the binding constraint. See [Choosing a host](hosts.md).
 
+
+## Oracle tiers
+
+A `PASS` is not one claim. Depending on what adjudicated it, it can mean three very different things, and without a tier all three render identically.
+
+| Tier | You passed `against=` | What a PASS actually claims |
+|---|---|---|
+| **A** | `"torch.add"`, or a lambda built from torch ops | **Computes the right function.** Every arithmetic operation in the answer key is PyTorch's own, run in float64 on CPU. |
+| **B** | your own callable — a prototype, a numpy version, a for-loop | **Agrees with your reference.** If the reference is wrong, the agreement is worth nothing. |
+| **C** | nothing | **No correctness verdict is valid.** Consistency checks may still have run, and a failure among them is a real defect — but a pass means "nothing contradicted itself", not "correct". |
+
+```python
+r.oracle_tier            # OracleTier.A
+r.oracle_kind            # OracleKind.TORCH_OP — provenance, not strength
+r.is_correctness_valid   # False only for Tier C
+r.checks                 # [CheckKind.REFERENCE] — which check families ran
+```
+
+Note what the tier does **not** measure: whether you chose the right function to compare against. Passing `torch.sub` when you meant `torch.add` produces a confident, well-graded, wrong verdict. That risk is identical at every tier and is unknowable to the tool, so folding it into the grade would make the grade dishonest.
+
+A torch **expression** grades the same as a torch **operator**. Composing `lambda q, k, v: torch.softmax(q @ k.T / d**0.5, -1) @ v` is your work and you can get it wrong — but so is picking the wrong operator name, and every arithmetic step inside that lambda is still PyTorch's. What separates tier B is that the answer key contains arithmetic *we* cannot vouch for.
+
+### Why `checks` is a list and not a tier
+
+The check families do not order against each other, so ranking them would encode a falsehood:
+
+- **config agreement** catches a kernel that breaks at one autotune tile size. A golden baseline never would.
+- **a golden baseline** catches an output that moved under a torch upgrade. Config agreement never would.
+
+Neither is stronger. So the tier carries the one thing that is genuinely ordered — how independent and trustworthy the answer key is — and `checks` records what ran, unranked. A run can be tier A *and* carry a golden baseline; those add up rather than competing for one slot.
+
+Members are added to `CheckKind` only when a code path can actually emit them. An enum value nothing produces is a false promise to whoever is reading the JSON.
+
+### Reading it from CI
+
+```console
+$ shapesandstrides verify examples/verified_kernels.py --json
+```
+
+```json
+{
+  "kernels": [
+    { "kernel": "fused_add", "verdict": "CORRECT", "oracle_tier": "A",
+      "oracle_kind": "torch_op", "oracle_label": "torch.add",
+      "checks": ["reference"], "correctness_valid": true,
+      "shapes_passed": 16, "shapes_total": 16,
+      "minimal_failure": null, "error": null }
+  ],
+  "device": "cuda", "failed": 0, "exit_code": 0
+}
+```
+
+`verdict` is a three-way string, not a boolean: `ERROR` (never adjudicated) is not `INCORRECT` (adjudicated and wrong). An `ERROR` carries no tier, because there is no verdict to grade.
+
 ## Current status
 
-Tier B and Tier C have both been observed on real hardware. **Tier A and CV-triggered Tier C are pinned by unit tests but have never been exercised live**, because no lockable GPU has been available. The first Tier A host should re-verify both paths end to end before its numbers are trusted.
+**Measurement tiers.** Tier B and Tier C have both been observed on real hardware. **Tier A and CV-triggered Tier C are pinned by unit tests but have never been exercised live**, because no lockable GPU has been available. The first Tier A host should re-verify both paths end to end before its numbers are trusted.
+
+**Oracle tiers.** A and B have both been produced live — A against real Triton kernels on an RTX 3060, B against a plain Python reference. **No report can be tier C yet.** `resolve(None)` grades as C correctly, but `check()` currently refuses to run at all without a reference rather than degrading to consistency checks, so nothing downstream ever sees a tier-C report. The tier is defined ahead of the no-reference checks it exists to grade, deliberately: adding the untiered checks first would mean shipping a verdict with nothing to qualify it.

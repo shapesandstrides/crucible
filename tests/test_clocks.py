@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import patch
 
-from sns.clocks import ClockLockError, LockedClockPolicy, UnlockedClockPolicy, assign_tier
-from sns.types import MeasurementTier
+from shapesandstrides.clocks import ClockLockError, LockedClockPolicy, UnlockedClockPolicy, assign_tier
+from shapesandstrides.types import MeasurementTier
 
 
 def test_throttle_forces_tier_c():
@@ -42,16 +42,16 @@ def test_unlocked_policy_is_a_no_op_and_reports_unlocked():
 
 def test_locked_policy_raises_when_write_is_refused():
     """nvidia-smi exits 0 on refusal, so only the readback can be believed."""
-    with patch("sns.clocks._run_smi", return_value=(0, "no permission")), patch(
-        "sns.clocks.smi_query_float", return_value=1282.0
+    with patch("shapesandstrides.clocks._run_smi", return_value=(0, "no permission")), patch(
+        "shapesandstrides.clocks.smi_query_float", return_value=1282.0
     ):
         with pytest.raises(ClockLockError, match="1500"):
             LockedClockPolicy(target_sm_mhz=1500).apply()
 
 
 def test_locked_policy_succeeds_when_readback_matches():
-    with patch("sns.clocks._run_smi", return_value=(0, "")), patch(
-        "sns.clocks.smi_query_float", return_value=1500.0
+    with patch("shapesandstrides.clocks._run_smi", return_value=(0, "")), patch(
+        "shapesandstrides.clocks.smi_query_float", return_value=1500.0
     ):
         p = LockedClockPolicy(target_sm_mhz=1500)
         p.apply()
@@ -59,8 +59,8 @@ def test_locked_policy_succeeds_when_readback_matches():
 
 
 def test_locked_policy_accepts_small_readback_tolerance():
-    with patch("sns.clocks._run_smi", return_value=(0, "")), patch(
-        "sns.clocks.smi_query_float", return_value=1495.0
+    with patch("shapesandstrides.clocks._run_smi", return_value=(0, "")), patch(
+        "shapesandstrides.clocks.smi_query_float", return_value=1495.0
     ):
         LockedClockPolicy(target_sm_mhz=1500).apply()
 
@@ -72,7 +72,7 @@ def test_locked_policy_restore_resets_clocks():
         calls.append(args)
         return (0, "")
 
-    with patch("sns.clocks._run_smi", side_effect=record):
+    with patch("shapesandstrides.clocks._run_smi", side_effect=record):
         LockedClockPolicy(target_sm_mhz=1500).restore()
 
     assert ["-rgc"] in calls
@@ -86,8 +86,8 @@ def test_locked_policy_restores_when_readback_fails():
         calls.append(args)
         return (0, "")
 
-    with patch("sns.clocks._run_smi", side_effect=record), patch(
-        "sns.clocks.smi_query_float", return_value=1282.0
+    with patch("shapesandstrides.clocks._run_smi", side_effect=record), patch(
+        "shapesandstrides.clocks.smi_query_float", return_value=1282.0
     ):
         p = LockedClockPolicy(target_sm_mhz=1500)
         with pytest.raises(ClockLockError):
@@ -98,8 +98,8 @@ def test_locked_policy_restores_when_readback_fails():
 
 
 def test_locked_policy_raises_when_clock_cannot_be_read():
-    with patch("sns.clocks._run_smi", return_value=(0, "")), patch(
-        "sns.clocks.smi_query_float", return_value=None
+    with patch("shapesandstrides.clocks._run_smi", return_value=(0, "")), patch(
+        "shapesandstrides.clocks.smi_query_float", return_value=None
     ):
         with pytest.raises(ClockLockError):
             LockedClockPolicy(target_sm_mhz=1500).apply()
@@ -109,8 +109,8 @@ def test_locked_policy_verifies_the_power_cap_too():
     def fake_query(field, index=0):
         return {"clocks.sm": 1500.0, "power.limit": 200.0}.get(field)
 
-    with patch("sns.clocks._run_smi", return_value=(0, "")), patch(
-        "sns.clocks.smi_query_float", side_effect=fake_query
+    with patch("shapesandstrides.clocks._run_smi", return_value=(0, "")), patch(
+        "shapesandstrides.clocks.smi_query_float", side_effect=fake_query
     ):
         with pytest.raises(ClockLockError, match="300"):
             LockedClockPolicy(target_sm_mhz=1500, power_cap_w=300).apply()
