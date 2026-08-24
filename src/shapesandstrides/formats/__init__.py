@@ -36,6 +36,7 @@ from shapesandstrides.formats.spec import (
     Provenance,
     ieee_bias,
 )
+from shapesandstrides.formats.sweep import SweepPoint, SweepReport, sweep
 from shapesandstrides.formats.validate import ValidationReport, validate
 from shapesandstrides.formats.values import ValueClass, ValueSet, values_for
 
@@ -47,6 +48,8 @@ __all__ = [
     "QuantizationModel",
     "RoundTripReport",
     "SilentLoss",
+    "SweepPoint",
+    "SweepReport",
     "Provenance",
     "ValidationReport",
     "ValueClass",
@@ -55,6 +58,7 @@ __all__ = [
     "gradient_like",
     "ieee_bias",
     "round_trip",
+    "sweep",
     "validate",
     "values_for",
     "FLOAT64",
