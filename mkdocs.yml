@@ -1,6 +1,6 @@
 site_name: crucible
 site_description: Honest correctness and timing for Triton kernels
-site_url: https://shapesandstrides.github.io/crucible/
+site_url: https://docs.shapesandstrides.com/
 repo_url: https://github.com/shapesandstrides/crucible
 repo_name: shapesandstrides/crucible
 edit_uri: edit/main/docs/
