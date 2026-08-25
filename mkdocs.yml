@@ -31,21 +31,28 @@ theme:
         icon: material/weather-sunny
         name: Switch to light mode
 
+# Grouped by the question a reader is actually asking. Existing pages keep
+# their paths: docs.shapesandstrides.com is live, and moving guide/tiers.md to
+# correctness/tiers.md would break a published URL for a cosmetic gain.
 nav:
   - Home: index.md
   - Getting started: getting-started.md
-  - Guide:
+  - Correctness:
+      - Overview: correctness/index.md
       - Testing a kernel: guide/testing.md
+      - Oracle tiers: guide/tiers.md
+  - Performance:
       - Measuring: guide/measuring.md
       - Comparing: guide/comparing.md
-      - Tiers: guide/tiers.md
-      - Numeric formats: guide/formats.md
+      - Choosing a host: guide/hosts.md
+  - Numeric formats:
+      - Overview: guide/formats.md
       - Reconstructing cbfloat16: guide/formats-cbfloat16.md
       - Findings: guide/formats-findings.md
-      - Choosing a host: guide/hosts.md
-      - What this cannot catch: guide/limits.md
   - API reference: reference.md
-  - Why this exists: why.md
+  - Background:
+      - Why this exists: why.md
+      - What this cannot catch: guide/limits.md
 
 # The private design docs live under docs/superpowers/ and are gitignored.
 # Exclude them from the build too, or a local `mkdocs build` would render
