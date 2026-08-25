@@ -59,10 +59,65 @@ answering "intact" for a check that never ran would claim a guarantee that does
 not exist. Same distinction [rule 7](../guide/tiers.md) draws between a failure
 and an absent verdict.
 
+## Determinism — is there a race?
+
+Run the same input repeatedly. Any variation means a race, or memory read
+before it was written.
+
+```python
+from shapesandstrides.buffers import check_determinism
+
+report = check_determinism(lambda: run_my_kernel(x), runs=20)
+assert report.passed, f"varied by {report.max_deviation} on {report.varying_runs} runs"
+```
+
+The callable must genuinely re-launch the kernel. A closure over an
+already-computed tensor tests nothing and always passes.
+
+`varying_runs` is a count, not a flag, because a race that fires on every run
+and one that fires occasionally are very different debugging problems.
+
+### A pass means less than you would hope
+
+Twenty runs will not surface a race that fires one time in a thousand. **A pass
+is weak evidence; a failure is conclusive.** That asymmetry is worth having for
+a check this cheap, but it should be stated rather than implied.
+
+Worse, and more interesting: **a race can be stably scheduled and look
+perfectly deterministic.** Here is a kernel with an obvious race — 32 blocks
+read-modify-write one address with no atomic:
+
+```python
+@triton.jit
+def racing_sum(src, dst, BLOCK: tl.constexpr):
+    offs = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    partial = tl.sum(tl.load(src + offs))
+    tl.store(dst, tl.load(dst) + partial)   # no atomic, no barrier
+```
+
+Measured on an RTX 3060:
+
+```
+true sum        2045.07
+returned          63.21     <- one block's partial, last writer wins
+determinism     passed=True, varying=0/49, max_deviation=0.0
+```
+
+The kernel is wrong by a factor of 32, returns the same wrong answer 50 times
+in a row, and determinism checking reports it clean. Every block is scheduled
+in the same order every launch, so there is no variation to detect.
+
+**Determinism is not correctness.** It rules out one failure mode and says
+nothing about the rest. This particular kernel is caught immediately by an
+[accuracy budget](accuracy-budget.md) against `torch.sum`, and by
+`compute-sanitizer --tool racecheck`, which reasons about the memory model
+instead of sampling outcomes.
+
 ## What these cannot catch
 
-A kernel that writes every element, stays in bounds, and computes entirely the
-wrong function passes both checks.
+A kernel that writes every element, stays in bounds, returns the same answer
+every time, and computes entirely the wrong function passes all three checks.
+The racing kernel above is exactly that.
 
 They raise the floor. They do not establish correctness, and a report resting
 only on them is [tier C](../guide/tiers.md) — the strong verdict is

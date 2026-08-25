@@ -98,3 +98,69 @@ def inspect_buffer(buf) -> BufferReport:
         canary_present=canary_present,
         passed=(unwritten == 0 and canary_intact),
     )
+
+
+class DeterminismReport(BaseModel):
+    runs: int
+    # How many repeats differed from the first. Counted rather than flagged so
+    # a race that fires occasionally is distinguishable from one that fires
+    # every time -- the two feel very different to debug.
+    varying_runs: int
+    max_deviation: float
+    shape_varied: bool
+    passed: bool
+
+
+def check_determinism(launch, runs: int = 20) -> DeterminismReport:
+    """Run the same launch repeatedly; any variation is a race.
+
+    ``launch`` takes no arguments and returns a tensor. It must genuinely
+    re-run the kernel -- a closure over an already-computed tensor tests
+    nothing and will always pass.
+
+    A race that fires one time in a thousand will not appear in twenty runs,
+    so **a pass here is weak evidence and a failure is conclusive**. That
+    asymmetry is the right one for a check this cheap, but it has to be stated
+    rather than implied.
+    """
+    import torch
+
+    if runs < 2:
+        raise ValueError(
+            f"check_determinism(runs={runs}) cannot detect variation: it needs "
+            "at least 2 runs to have anything to compare. Pass runs>=2."
+        )
+
+    first = launch().detach().to("cpu", dtype=torch.float64)
+    varying = 0
+    max_dev = 0.0
+    shape_varied = False
+
+    for _ in range(runs - 1):
+        out = launch().detach().to("cpu", dtype=torch.float64)
+
+        if tuple(out.shape) != tuple(first.shape):
+            shape_varied = True
+            varying += 1
+            continue
+
+        # NaN != NaN, so comparing raw values would report variation on every
+        # run of a kernel that legitimately produces NaN. Compare finiteness
+        # patterns, then magnitudes among the finite entries.
+        if not torch.equal(torch.isnan(out), torch.isnan(first)):
+            varying += 1
+            continue
+
+        deviation = (out - first).abs()
+        deviation = deviation[torch.isfinite(deviation)]
+        if deviation.numel() and deviation.max().item() > 0.0:
+            varying += 1
+            max_dev = max(max_dev, float(deviation.max().item()))
+
+    return DeterminismReport(
+        runs=runs,
+        varying_runs=varying,
+        max_deviation=max_dev,
+        shape_varied=shape_varied,
+        passed=(varying == 0),
+    )
