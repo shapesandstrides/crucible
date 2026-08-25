@@ -16,12 +16,14 @@ from shapesandstrides.reference import (
     ResolvedReference,
     resolve,
 )
+from shapesandstrides.budget import ErrorBudget, compare_error_budget
 from shapesandstrides.oracle import (
     OracleResult,
     compare_against_oracle,
     compare_outputs,
     make_inputs,
     reference_fp64,
+    reference_lowp,
 )
 from shapesandstrides.shapes import ShapeSpec, ShapeTier, generate_shapes
 from shapesandstrides.tolerance import tolerance_for
@@ -38,6 +40,10 @@ class ShapeOutcome(BaseModel):
     # One entry per kernel output. `oracle` mirrors outputs[0] for
     # convenience; multi-output kernels put the rest here.
     outputs: list[OracleResult] = []
+    # Present only when check(error_budget=...) was used. None means the check
+    # did not run, which is a different statement from running and finding
+    # nothing -- see rule 7.
+    budget: ErrorBudget | None = None
     error: str | None = None
 
 
@@ -70,6 +76,18 @@ class CorrectnessReport(BaseModel):
         return self.oracle_tier is not OracleTier.C
 
 
+def _first(result):
+    """The primary output. Multi-output kernels are budgeted on output 0."""
+    return result[0] if isinstance(result, (tuple, list)) else result
+
+
+def _cast_to(result, dtype):
+    """Cast a tensor, or every tensor in a tuple/list, to `dtype`."""
+    if isinstance(result, (tuple, list)):
+        return type(result)(r.to(dtype) for r in result)
+    return result.to(dtype)
+
+
 def shrink_to_minimal(failures: list[ShapeOutcome]) -> ShapeOutcome | None:
     """The smallest failing case is the one a human can actually debug.
 
@@ -98,6 +116,7 @@ def check(
     fused_ops: list[str] | None = None,
     tolerance_override: tuple[float, float] | None = None,
     tiles=None,
+    error_budget: float | None = None,
 ) -> CorrectnessReport:
     """Run a kernel across a shape space and adjudicate every output.
 
@@ -118,6 +137,16 @@ def check(
     the inner `@triton.jit` object, not the Python wrapper callers pass to
     `check()`, so a caller who wants tile-aware generation must call
     `discover_tiles` itself and pass the result in explicitly.
+
+    ``error_budget``, if given, grades each shape against the *unfused chain's
+    own error* instead of a fixed tolerance, and the value is the margin: 2.0
+    allows the kernel to be twice as noisy as the reference before it is called
+    wrong. It **replaces** the atol/rtol verdict rather than adding to it,
+    because a fused kernel is routinely outside a fixed tolerance by being more
+    accurate than the reference, and requiring both would leave exactly that
+    false failure in place. The tolerance comparison still runs and is still
+    recorded on each outcome, so nothing is hidden -- only the verdict changes.
+    See `shapesandstrides.budget`.
     """
     import torch
 
@@ -164,9 +193,26 @@ def check(
             cpu_inputs = make_inputs(spec, seed=shape_seed, n_inputs=n_inputs, device="cpu")
             dev_inputs = make_inputs(spec, seed=shape_seed, n_inputs=n_inputs, device=device)
             actual = fn(*dev_inputs)
-            expected = reference_fp64(
-                ref.fn, cpu_inputs, out_dtype=getattr(torch, spec.dtype)
-            )
+
+            if error_budget is None:
+                expected = reference_fp64(
+                    ref.fn, cpu_inputs, out_dtype=getattr(torch, spec.dtype)
+                )
+                budget = None
+            else:
+                # Keep the golden at full float64 for the budget, and cast a
+                # copy down for the tolerance comparison. One reference call,
+                # not two: running the chain twice per shape would double the
+                # cost of every budgeted run for no gain.
+                golden = reference_fp64(ref.fn, cpu_inputs, out_dtype=torch.float64)
+                expected = _cast_to(golden, getattr(torch, spec.dtype))
+                budget = compare_error_budget(
+                    _first(actual),
+                    _first(reference_lowp(ref.fn, cpu_inputs)),
+                    _first(golden),
+                    margin=error_budget,
+                )
+
             atol, rtol = tolerance_for(
                 op_name, spec.dtype, fused_ops=fused_ops, override=tolerance_override
             )
@@ -174,10 +220,15 @@ def check(
             outcomes.append(
                 ShapeOutcome(
                     spec=spec,
-                    passed=all(r.passed for r in results),
+                    # The budget governs when it ran. Requiring both verdicts
+                    # would keep failing the case the budget exists to fix.
+                    passed=budget.passed
+                    if budget is not None
+                    else all(r.passed for r in results),
                     seed=shape_seed,
                     oracle=results[0],
                     outputs=results,
+                    budget=budget,
                 )
             )
         except Exception as e:
@@ -200,7 +251,11 @@ def check(
         oracle_kind=ref.kind,
         oracle_label=ref.label,
         oracle_tier=ref.tier,
-        checks=[CheckKind.REFERENCE],
+        checks=(
+            [CheckKind.REFERENCE, CheckKind.ERROR_BUDGET]
+            if error_budget is not None
+            else [CheckKind.REFERENCE]
+        ),
         outcomes=outcomes,
         passed=not failures,
         total=len(outcomes),

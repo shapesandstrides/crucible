@@ -40,6 +40,7 @@ nav:
   - Correctness:
       - Overview: correctness/index.md
       - Testing a kernel: guide/testing.md
+      - Accuracy budget: correctness/accuracy-budget.md
       - Oracle tiers: guide/tiers.md
   - Performance:
       - Measuring: guide/measuring.md

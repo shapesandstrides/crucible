@@ -61,6 +61,10 @@ class CheckKind(str, Enum):
     """
 
     REFERENCE = "reference"
+    # Emitted only by check(error_budget=...). Grades the kernel against the
+    # unfused chain's own error rather than a fixed tolerance, so it answers a
+    # different question from REFERENCE and does not rank against it.
+    ERROR_BUDGET = "error_budget"
 
 
 class TimingResult(BaseModel):

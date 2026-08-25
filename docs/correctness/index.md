@@ -12,6 +12,7 @@ than it.
 | Your situation | Use |
 |---|---|
 | A named torch equivalent exists | [Testing a kernel](../guide/testing.md) |
+| Fused, but you can write the unfused chain | [Accuracy budget](accuracy-budget.md) |
 | You need to know how strong a verdict you have | [Oracle tiers](../guide/tiers.md) |
 
 ## Why "no answer key" is the common case
@@ -36,6 +37,6 @@ correct fused kernel returns different numbers from the unfused chain — usuall
 *better* ones.
 
 `torch.allclose` cannot distinguish "different because it is more accurate"
-from "different because it is broken". Distinguishing those needs a third
-value: the same computation in float64, against which both the kernel and the
-unfused chain can be measured.
+from "different because it is broken". The [accuracy budget](accuracy-budget.md)
+can, by measuring both against a float64 golden and asking whether the kernel is
+any worse than the code it replaced.

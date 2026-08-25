@@ -133,6 +133,24 @@ def test_everything_serialises_json_clean():
             assert math.isfinite(value), f"{key} is not JSON-safe: {value}"
 
 
+def test_handles_tensors_larger_than_quantiles_limit():
+    """torch.quantile raises above ~16.7M elements (2**24).
+
+    A 4097x4096 kernel output is 16.78M and appears in the standard FAST shape
+    sweep, so this is an ordinary size, not a pathological one. Regression
+    guard: the first implementation used torch.quantile and every large shape
+    in the sweep errored out.
+    """
+    n = (1 << 24) + 1024
+    golden = torch.ones(n, dtype=torch.float64)
+    kernel = torch.ones(n, dtype=torch.float32)
+    reference = torch.ones(n, dtype=torch.float32)
+
+    b = compare_error_budget(kernel, reference, golden)
+    assert b.total_elements == n
+    assert b.passed is True
+
+
 def test_reports_a_distribution_not_a_scalar():
     """Rule 5. A kernel right almost everywhere and wrong in one corner is the
     interesting failure, and a mean hides it."""

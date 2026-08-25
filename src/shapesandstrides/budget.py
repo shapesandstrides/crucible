@@ -90,16 +90,28 @@ def ulp_error(actual, golden):
 
 
 def _distribution(err) -> tuple[float, float, float]:
-    """(p50, p99, max) over the finite entries. Empty input reports zeros."""
+    """(p50, p99, max) over the finite entries. Empty input reports zeros.
+
+    Sorts and indexes rather than calling `torch.quantile`, which raises
+    ``quantile() input tensor is too large`` beyond roughly 16.7M elements
+    (2**24). A 4097x4096 output is 16.78M, so the limit is reached by ordinary
+    shapes in the sweep -- and it would bite hardest on exactly the large
+    kernels most worth grading. Subsampling would dodge it at the cost of
+    making p99 an estimate reported as if it were exact.
+    """
     import torch
 
     finite = err[torch.isfinite(err)]
-    if finite.numel() == 0:
+    n = int(finite.numel())
+    if n == 0:
         return 0.0, 0.0, 0.0
-    p50, p99 = torch.quantile(
-        finite, torch.tensor([0.50, 0.99], dtype=torch.float64)
-    ).tolist()
-    return float(p50), float(p99), float(finite.max().item())
+
+    ordered, _ = torch.sort(finite)
+    # Nearest-rank on a 0-based index, matching quantile's endpoints at the
+    # extremes without pulling in its interpolation or its size ceiling.
+    p50 = float(ordered[min(n - 1, int(0.50 * (n - 1) + 0.5))].item())
+    p99 = float(ordered[min(n - 1, int(0.99 * (n - 1) + 0.5))].item())
+    return p50, p99, float(ordered[-1].item())
 
 
 def compare_error_budget(actual, reference, golden, margin: float = 2.0) -> ErrorBudget:
