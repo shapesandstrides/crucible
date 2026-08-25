@@ -13,6 +13,7 @@ than it.
 |---|---|
 | A named torch equivalent exists | [Testing a kernel](../guide/testing.md) |
 | Fused, but you can write the unfused chain | [Accuracy budget](accuracy-budget.md) |
+| No equivalent exists anywhere | [Safety checks](safety-checks.md) |
 | You need to know how strong a verdict you have | [Oracle tiers](../guide/tiers.md) |
 
 ## Why "no answer key" is the common case
