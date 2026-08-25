@@ -97,6 +97,35 @@ def reference_fp64(fn: Callable, inputs: list, out_dtype) -> "object":
     return result.to(out_dtype)
 
 
+def reference_lowp(fn: Callable, inputs: list) -> "object":
+    """Compute fn at the inputs' own dtype, on CPU, with no upcast.
+
+    The counterpart to `reference_fp64`. That one computes in float64 and
+    rounds down, which yields the *correctly rounded ideal*. This one yields
+    what the unfused chain actually returns in production, rounding error and
+    all.
+
+    The gap between the two is the error a fused kernel is allowed to have:
+    a fused kernel keeps intermediates in registers at higher precision, so it
+    routinely disagrees with the unfused chain by being closer to the truth.
+    Grading it needs the real reference, not the ideal one. See
+    `shapesandstrides.budget.compare_error_budget`.
+
+    Runs on CPU deliberately. A GPU reference would bake that GPU's
+    accumulation order into the budget, making the verdict depend on the card
+    it happened to be measured on.
+
+    Tuple and list results are passed through element-wise so multi-output
+    fused kernels -- a primary output plus saved mean, rstd or indices -- line
+    up with what `reference_fp64` returns for the same call.
+    """
+    cpu_inputs = [t.detach().to("cpu") for t in inputs]
+    result = fn(*cpu_inputs)
+    if isinstance(result, (tuple, list)):
+        return type(result)(result)
+    return result
+
+
 def compare_against_oracle(actual, expected, atol: float, rtol: float) -> OracleResult:
     """Adjudicate one output against the oracle. We compute the verdict."""
     import torch
