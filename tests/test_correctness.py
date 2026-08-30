@@ -145,7 +145,8 @@ def test_a_wrong_kernel_fails_with_a_minimal_case_and_a_seed():
     assert r.failed_count > 0
     assert r.minimal_failure is not None
     assert r.minimal_failure.seed is not None
-    assert "shapesandstrides replay" in r.replay_command
+    assert r.replay_hint == f"shape={r.minimal_failure.spec.label} seed={r.minimal_failure.seed}"
+    assert "replay" not in r.replay_hint
 
 
 @requires_gpu

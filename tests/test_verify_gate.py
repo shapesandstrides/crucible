@@ -135,12 +135,13 @@ def test_plugin_collects_a_marked_kernel_and_passes(pytester):
     res.assert_outcomes(passed=1)
 
 
-def test_plugin_fails_a_broken_kernel_with_a_replay_line(pytester):
+def test_plugin_fails_a_broken_kernel_with_a_reproduce_line(pytester):
     pytester.makepyfile(my_kernels=textwrap.dedent(BAD))
     res = pytester.runpytest("--sas-device", "cpu")
     res.assert_outcomes(failed=1)
     res.stdout.fnmatch_lines(["*is INCORRECT*"])
-    res.stdout.fnmatch_lines(["*replay*shapesandstrides replay*"])
+    res.stdout.fnmatch_lines(["*reproduce*shape=*seed=*"])
+    assert "shapesandstrides replay" not in res.stdout.str()
 
 
 def test_plugin_ignores_ordinary_test_files(pytester):
@@ -261,16 +262,18 @@ def test_json_exposes_whether_the_verdict_is_a_correctness_claim(tmp_path):
     assert json.loads(res.output)["kernels"][0]["correctness_valid"] is True
 
 
-def test_json_does_not_advertise_the_replay_command(tmp_path):
-    """`shapesandstrides replay` does not exist. It is already printed on the
-    human path, which is a known defect; emitting it here would plant the same
-    false affordance in new machine-readable output, where something will act
-    on it. The shape label and seed under minimal_failure carry the same
-    information without promising a command that fails."""
+def test_json_does_not_advertise_a_replay_command(tmp_path):
+    """`shapesandstrides replay` does not exist and is no longer printed
+    anywhere. The shape label and seed under minimal_failure carry the same
+    information without promising a command that fails. This test guards the
+    machine-readable path specifically, because an agent will act on a command
+    string it is handed."""
     _write(tmp_path, "my_kernels.py", BAD)
     res = runner.invoke(app, ["verify", str(tmp_path), "--device", "cpu", "--json"])
     k = json.loads(res.output)["kernels"][0]
     assert "replay_command" not in k
+    assert "replay_hint" not in k
+    assert "shapesandstrides replay" not in res.output
     assert k["minimal_failure"]["seed"] is not None
     assert k["minimal_failure"]["spec"]["label"]
 

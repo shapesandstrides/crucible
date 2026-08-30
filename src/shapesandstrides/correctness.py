@@ -58,7 +58,11 @@ class CorrectnessReport(BaseModel):
     total: int = 0
     failed_count: int = 0
     minimal_failure: ShapeOutcome | None = None
-    replay_command: str = ""
+    replay_hint: str = ""
+    """How to reproduce the minimal failure, as data.
+
+    Deliberately not a command. `shapesandstrides replay` does not exist, and
+    printing it told users to run something that fails."""
 
     @property
     def is_correctness_valid(self) -> bool:
@@ -194,7 +198,7 @@ def check(
     minimal = shrink_to_minimal(failures)
     replay = ""
     if minimal is not None:
-        replay = f"shapesandstrides replay --shape {minimal.spec.label} --seed {minimal.seed}"
+        replay = f"shape={minimal.spec.label} seed={minimal.seed}"
 
     return CorrectnessReport(
         oracle_kind=ref.kind,
@@ -206,5 +210,5 @@ def check(
         total=len(outcomes),
         failed_count=len(failures),
         minimal_failure=minimal,
-        replay_command=replay,
+        replay_hint=replay,
     )

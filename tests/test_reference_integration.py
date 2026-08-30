@@ -143,7 +143,7 @@ def test_broken_triton_kernel_fails_against_a_torch_operator():
     assert not r.passed
     assert r.failed_count > 0
     assert r.minimal_failure is not None
-    assert r.replay_command.startswith("shapesandstrides replay")
+    assert r.replay_hint.startswith("shape=")
 
 
 @requires_gpu

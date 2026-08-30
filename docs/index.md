@@ -77,8 +77,9 @@ FAIL  triton_add_assumes_contiguous  15/16 shapes
       minimal failing case: 512x512-noncontiguous-float32  seed=12648437
 ```
 
-Not built yet: cloud sync, the hosted catalog, and the web dashboard. `shapesandstrides replay` prints a
-replay command but is not yet an executable subcommand.
+Not built yet: cloud sync, the hosted catalog, and the web dashboard. There is no
+`replay` subcommand: a failure reports its shape and seed as data, and you reproduce
+it by re-running the same kernel with that seed.
 
 ## Install
 

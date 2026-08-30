@@ -1,3 +1,5 @@
+<img src="docs/assets/icon.svg" alt="" width="76">
+
 # crucible
 
 [![tests](https://github.com/shapesandstrides/crucible/actions/workflows/tests.yml/badge.svg)](https://github.com/shapesandstrides/crucible/actions/workflows/tests.yml)

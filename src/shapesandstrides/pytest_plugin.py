@@ -143,7 +143,7 @@ class KernelItem(pytest.Item):
                         n for n, on in (("NaN", o.has_nan), ("Inf", o.has_inf)) if on
                     )
                     lines.append(f"  contains     {flags}")
-            lines.append(f"  replay       {r.replay_command}")
+            lines.append(f"  reproduce    {r.replay_hint}")
         return "\n".join(lines)
 
     def reportinfo(self):
