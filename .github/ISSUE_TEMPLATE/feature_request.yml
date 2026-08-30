@@ -1,0 +1,43 @@
+name: Feature request
+description: Something the tool should do and doesn't.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What were you trying to find out about a kernel that this tool couldn't
+        tell you? Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like it to do
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you're doing instead today
+      description: A worse workaround is useful signal about how much this hurts.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Compatibility with the project's rules
+      description: >
+        Four rules override convenience, always — see CONTRIBUTING.md. Most
+        requests are fine; this is just a prompt to check.
+      options:
+        - label: >
+            This doesn't require caching the PyTorch baseline across runs,
+            returning a bare number without an interval, letting submitted code
+            report its own result, or presenting a measurement as stronger than
+            it was.
+          required: false

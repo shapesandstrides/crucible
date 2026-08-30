@@ -1,10 +1,52 @@
 # crucible
 
+[![tests](https://github.com/shapesandstrides/crucible/actions/workflows/tests.yml/badge.svg)](https://github.com/shapesandstrides/crucible/actions/workflows/tests.yml)
+[![docs](https://img.shields.io/badge/docs-shapesandstrides.com-blue)](https://docs.shapesandstrides.com/)
+[![python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 Honest correctness and timing for Triton kernels.
 
 Answers two questions about a GPU kernel: is it correct across a wide space of shapes and dtypes, and is it actually faster than PyTorch — with a confidence interval, against a baseline re-measured in the same run.
 
 Runs on your own hardware. Kernel source never leaves the machine.
+
+## Install
+
+Not on PyPI yet. From source:
+
+```bash
+git clone https://github.com/shapesandstrides/crucible.git
+cd crucible
+pip install -e ".[dev]"
+```
+
+## See it fail
+
+Six kernels, three of them broken on purpose. Needs an NVIDIA GPU.
+
+```bash
+shapesandstrides verify examples/verified_kernels.py
+```
+
+```
+kernel                        verdict    shapes  oracle                     minimal failing case
+fused_add                     CORRECT     16/16  A:torch_op:torch.add
+fused_mul                     CORRECT     16/16  A:torch_op:torch.mul
+fused_add_autotuned           CORRECT     16/16  A:torch_op:torch.add
+fused_add_drops_tail          INCORRECT    5/16  A:torch_op:torch.add       1025-contiguous-float32
+fused_add_assumes_contiguous  INCORRECT   15/16  A:torch_op:torch.add       512x512-noncontiguous-float32
+rowsum                        INCORRECT    0/16  A:expression:<expression>  1025-contiguous-float32
+
+6 kernel(s) on device=cuda, 3 failed
+```
+
+Exit code 1, so it can block a merge. Each failure is shrunk to the smallest
+shape that still reproduces it: `fused_add_drops_tail` passes every aligned
+shape and dies at 1025, one element past the tile. `fused_add_assumes_contiguous`
+passes 15 of 16 and only breaks on a non-contiguous input.
+
+No GPU? `shapesandstrides.formats` runs on CPU alone — see below.
 
 ## Status
 
@@ -29,10 +71,16 @@ Declare a format by its parameters — including formats no vendor has fully pub
 ```python
 from shapesandstrides.formats import FLOAT16, BFLOAT16, round_trip
 
-round_trip(1e-8, into=[FLOAT16, BFLOAT16])
-# fp16 -> 0.0  UNDERFLOW      an ordinary gradient, silently destroyed
-# bf16 -> 1.001172e-08        rounded, 0.117% error
+for o in round_trip(1e-8, into=[FLOAT16, BFLOAT16]).outcomes:
+    print(f"{o.format_name:9} -> {o.result:<13.7g} {o.outcome.value:<9} {o.rel_error:>7.3%} error")
 ```
+
+```
+binary16  -> 0             underflow 100.000% error
+bfloat16  -> 1.001172e-08  rounded    0.117% error
+```
+
+An ordinary gradient. fp16 destroys it silently; bf16 keeps it to 0.117%.
 
 CPU only, no GPU needed. The simulator is validated bit-for-bit against torch's own fp16, bf16 and fp32 before any result is believed, and every result carries a grade saying whether it was. Built on [`gfloat`](https://github.com/graphcore-research/gfloat) (MIT).
 

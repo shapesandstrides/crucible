@@ -1,0 +1,59 @@
+name: Bug report
+description: Something crashed, hung, or behaved differently than documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If the tool ran fine but you think a **verdict or a timing number is
+        wrong**, use the "Disputed measurement" template instead — that one
+        asks for the run record, which is what makes the claim checkable.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, and what it did instead of what you expected.
+      placeholder: |
+        Ran `shapesandstrides verify kernels/softmax.py` and it raised
+        KeyError: 'stride' before reporting any verdict.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: >
+        The smallest thing that still fails. If a kernel is involved and you can
+        share it, paste it — if you can't, say so and describe its shape and
+        dtype signature instead. Kernel source is never required.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Full traceback or output
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: >
+        Versions matter more here than in most projects — this tool's whole job
+        is to notice when the stack underneath a kernel moved.
+      value: |
+        - crucible / shapesandstrides version:
+        - Python:
+        - torch:
+        - triton:
+        - OS:
+        - GPU (and driver version, if the bug involves a GPU):
+      render: markdown
+    validations:
+      required: true
