@@ -2,10 +2,17 @@
 
     python scripts/make_icon.py
 
-The mark is the product in one glyph: a tile of cells, and one cell that landed
-outside it. That is `1025-contiguous-float32` — the minimal failing case the
-shrinker reports for a kernel that masks against `(n // BLOCK) * BLOCK` instead
-of `n`. The tile is fine. The element past its edge is the bug.
+The mark is the claim this tool exists to make: two confidence intervals that
+do not overlap. Time runs left to right, so the orange interval (the kernel) is
+faster than the white one (the PyTorch baseline, re-measured in the same run),
+and the gap between them is why that is a real result rather than noise.
+
+It encodes the two non-negotiable rules at once — never report a bare number,
+and re-measure the baseline every run. A single point would be exactly the lie
+the project refuses to tell.
+
+An earlier mark drew a tile with one cell outside it. It read as a generic app
+launcher with a notification badge, so it was replaced.
 
 Colours track the mkdocs Material palette (primary black, accent deep orange)
 so the docs site, the README and the favicon are one system.
@@ -22,15 +29,18 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 # ── Geometry, in a 64x64 viewBox ──────────────────────────────────────────
+# Each interval is (x0, x1, y). Time runs left to right: the accent interval
+# sits entirely left of the light one, and they do not touch. Do not let them
+# overlap — an overlap is the picture of an unproven speedup.
 VIEW = 64.0
-CELL = 9.0
-GAP = 2.5
-TILE_X, TILE_Y = 7.0, 16.0
-ROWS = COLS = 3
-BOUNDARY_X = 43.0
-STRAY_X, STRAY_Y = 48.0, 27.5
-RADIUS = 13.0        # background corner radius
-CELL_RADIUS = 1.6
+BASELINE = (32.0, 58.0, 22.0)   # PyTorch, re-measured this run
+KERNEL = (6.0, 28.0, 42.0)      # the kernel under test
+CAP_H = 4.0                     # half-height of the end caps
+# Caps stay short relative to the bar. When they approach the bar's length the
+# glyph stops reading as an error bar and starts reading as the letter H.
+LINE_W = 3.4
+CAP_W = 3.4
+RADIUS = 13.0                   # background corner radius
 
 # ── Colour ────────────────────────────────────────────────────────────────
 INK = "#0F1115"      # background, near-black to match `primary: black`
@@ -41,32 +51,27 @@ EDGE = "#39404D"     # the tile boundary itself
 ASSETS = Path(__file__).resolve().parent.parent / "docs" / "assets"
 
 
-def _cells() -> list[tuple[float, float]]:
-    return [
-        (TILE_X + c * (CELL + GAP), TILE_Y + r * (CELL + GAP))
-        for r in range(ROWS)
-        for c in range(COLS)
-    ]
+def _intervals() -> list[tuple[tuple[float, float, float], str]]:
+    return [(BASELINE, CELL_FG), (KERNEL, ACCENT)]
 
 
 def svg() -> str:
     parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" '
-        f'width="64" height="64" role="img" aria-label="shapesandstrides">',
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" '
+        'width="64" height="64" role="img" '
+        'aria-label="two confidence intervals that do not overlap">',
         f'<rect width="64" height="64" rx="{RADIUS}" fill="{INK}"/>',
-        f'<line x1="{BOUNDARY_X}" y1="{TILE_Y - 3}" x2="{BOUNDARY_X}" '
-        f'y2="{TILE_Y + ROWS * CELL + (ROWS - 1) * GAP + 3}" '
-        f'stroke="{EDGE}" stroke-width="1.4" stroke-linecap="round"/>',
     ]
-    for x, y in _cells():
+    for (x0, x1, y), colour in _intervals():
         parts.append(
-            f'<rect x="{x}" y="{y}" width="{CELL}" height="{CELL}" '
-            f'rx="{CELL_RADIUS}" fill="{CELL_FG}"/>'
+            f'<line x1="{x0}" y1="{y}" x2="{x1}" y2="{y}" stroke="{colour}" '
+            f'stroke-width="{LINE_W}" stroke-linecap="butt"/>'
         )
-    parts.append(
-        f'<rect x="{STRAY_X}" y="{STRAY_Y}" width="{CELL}" height="{CELL}" '
-        f'rx="{CELL_RADIUS}" fill="{ACCENT}"/>'
-    )
+        for x in (x0, x1):
+            parts.append(
+                f'<line x1="{x}" y1="{y - CAP_H}" x2="{x}" y2="{y + CAP_H}" '
+                f'stroke="{colour}" stroke-width="{CAP_W}" stroke-linecap="round"/>'
+            )
     parts.append("</svg>")
     return "\n".join(parts) + "\n"
 
@@ -74,21 +79,16 @@ def svg() -> str:
 def _draw_mark(d: ImageDraw.ImageDraw, ox: float, oy: float, k: float,
                background: bool = True) -> None:
     """Draw the mark at scale `k`, origin (ox, oy). k = px per viewBox unit."""
-    def box(x, y, w, h):
-        return [ox + x * k, oy + y * k, ox + (x + w) * k, oy + (y + h) * k]
-
     if background:
-        d.rounded_rectangle(box(0, 0, VIEW, VIEW), radius=RADIUS * k, fill=INK)
-    y0 = TILE_Y - 3
-    y1 = TILE_Y + ROWS * CELL + (ROWS - 1) * GAP + 3
-    d.line(
-        [ox + BOUNDARY_X * k, oy + y0 * k, ox + BOUNDARY_X * k, oy + y1 * k],
-        fill=EDGE, width=max(1, round(1.4 * k)),
-    )
-    for x, y in _cells():
-        d.rounded_rectangle(box(x, y, CELL, CELL), radius=CELL_RADIUS * k, fill=CELL_FG)
-    d.rounded_rectangle(box(STRAY_X, STRAY_Y, CELL, CELL),
-                        radius=CELL_RADIUS * k, fill=ACCENT)
+        d.rounded_rectangle([ox, oy, ox + VIEW * k, oy + VIEW * k],
+                            radius=RADIUS * k, fill=INK)
+    for (x0, x1, y), colour in _intervals():
+        d.line([ox + x0 * k, oy + y * k, ox + x1 * k, oy + y * k],
+               fill=colour, width=max(1, round(LINE_W * k)))
+        for x in (x0, x1):
+            d.line([ox + x * k, oy + (y - CAP_H) * k,
+                    ox + x * k, oy + (y + CAP_H) * k],
+                   fill=colour, width=max(1, round(CAP_W * k)))
 
 
 def png(size: int, path: Path, ss: int = 4) -> None:
@@ -135,10 +135,10 @@ def social(path: Path, ss: int = 2) -> None:
         return text
 
     # ── left column ──
-    mark = 84 * ss
+    mark = 132 * ss
     glyph = Image.new("RGBA", (mark, mark), (0, 0, 0, 0))
     _draw_mark(ImageDraw.Draw(glyph), 0, 0, mark / VIEW, background=False)
-    img.paste(glyph, (M, 146 * ss), glyph)
+    img.paste(glyph, (M - 14 * ss, 128 * ss), glyph)
 
     wf = _font("segoeuib.ttf", 50 * ss)
     d.text((M, 258 * ss), _fit("shapesandstrides", wf, "wordmark"), font=wf, fill=CELL_FG)
