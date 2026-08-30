@@ -6,7 +6,7 @@ No reference implementations are written here. `against="torch.add"` means
 PyTorch's own operator is the answer key, and the reduction below is satisfied
 by a one-line expression because no single torch op matches it.
 
-Run it and check `$?`. Two of these kernels are broken on purpose, so the
+Run it and check `$?`. Three of these kernels are broken on purpose, so the
 command exits 1 — which is the whole point: this can block a merge.
 """
 

@@ -1,0 +1,74 @@
+name: Disputed measurement
+description: A verdict or a timing number looks wrong to you.
+labels: ["measurement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These are the most valuable issues this project gets. A tool that
+        reports honestly is worth nothing if it reports honestly *and wrongly*,
+        so please file this even if you aren't sure.
+
+        Bring the run record. Every run stores one, and it carries the seed, so
+        failures replay.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What looks wrong
+      options:
+        - A correctness verdict (INCORRECT / INCOMPATIBLE / ERROR / PASS)
+        - A timing result or its confidence interval
+        - The quality tier assigned to a measurement
+        - The minimal failing case that was reported
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: claim
+    attributes:
+      label: What the tool reported, and what you believe is true
+      description: Quote the output. Then say what you think the right answer is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: How you know
+      description: >
+        What did you measure independently, and how? Nsight, a hand-rolled
+        timing loop, a different oracle, a paper — anything. "It feels too slow"
+        is a fine starting point too; just say that's what it is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: record
+    attributes:
+      label: Run record
+      description: >
+        Output of `shapesandstrides show <run_id>`. Run records include an
+        environment fingerprint but **not** kernel source. Note that input
+        shapes can leak model architecture — redact them if that matters to you,
+        and say that you did.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      value: |
+        - crucible / shapesandstrides version:
+        - Python:
+        - torch:
+        - triton:
+        - OS:
+        - GPU and driver version:
+        - Clocks locked? (yes / no / unknown)
+      render: markdown
+    validations:
+      required: true
