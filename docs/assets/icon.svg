@@ -1,14 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="shapesandstrides">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="two confidence intervals that do not overlap">
 <rect width="64" height="64" rx="13.0" fill="#0F1115"/>
-<line x1="43.0" y1="13.0" x2="43.0" y2="51.0" stroke="#39404D" stroke-width="1.4" stroke-linecap="round"/>
-<rect x="7.0" y="16.0" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
-<rect x="18.5" y="16.0" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
-<rect x="30.0" y="16.0" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
-<rect x="7.0" y="27.5" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
-<rect x="18.5" y="27.5" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
-<rect x="30.0" y="27.5" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
-<rect x="7.0" y="39.0" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
-<rect x="18.5" y="39.0" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
-<rect x="30.0" y="39.0" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
-<rect x="48.0" y="27.5" width="9.0" height="9.0" rx="1.6" fill="#FF5722"/>
+<line x1="32.0" y1="22.0" x2="58.0" y2="22.0" stroke="#E9EDF2" stroke-width="3.4" stroke-linecap="butt"/>
+<line x1="32.0" y1="18.0" x2="32.0" y2="26.0" stroke="#E9EDF2" stroke-width="3.4" stroke-linecap="round"/>
+<line x1="58.0" y1="18.0" x2="58.0" y2="26.0" stroke="#E9EDF2" stroke-width="3.4" stroke-linecap="round"/>
+<line x1="6.0" y1="42.0" x2="28.0" y2="42.0" stroke="#FF5722" stroke-width="3.4" stroke-linecap="butt"/>
+<line x1="6.0" y1="38.0" x2="6.0" y2="46.0" stroke="#FF5722" stroke-width="3.4" stroke-linecap="round"/>
+<line x1="28.0" y1="38.0" x2="28.0" y2="46.0" stroke="#FF5722" stroke-width="3.4" stroke-linecap="round"/>
 </svg>
