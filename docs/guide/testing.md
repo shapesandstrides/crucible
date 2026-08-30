@@ -39,7 +39,7 @@ As the **timing baseline**, the same reference runs on GPU. That is the thing yo
 ```
 FAIL  triton_add_drops_tail    5/16 shapes
       minimal failing case: 1025-contiguous-float32  seed=12648431
-      replay: shapesandstrides replay --shape 1025-contiguous-float32 --seed 12648431
+      reproduce with  shape=1025-contiguous-float32 seed=12648431
 ```
 
 The minimal case is the smallest shape that **already failed** — we do not search for smaller ones, so every reported case is one genuinely observed.

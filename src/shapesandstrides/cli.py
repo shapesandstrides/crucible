@@ -93,7 +93,7 @@ def show(run_id: str, root: Path = ROOT):
         if c.minimal_failure:
             m = c.minimal_failure
             console.print(f"    [red]minimal failure[/red]  {m.spec.label}  seed {m.seed}")
-            console.print(f"    replay: {c.replay_command}")
+            console.print(f"    [dim]reproduce with[/dim]  {c.replay_hint}")
     else:
         console.print("\n  [bold]correctness[/bold]  [dim]not run[/dim]")
     if r.comparison:
@@ -189,12 +189,14 @@ def _verify_json(name: str, report, error: str | None) -> dict:
     would violate rule 7. An ERROR carries no tier because no verdict exists
     to grade.
 
-    Deliberately omits report.replay_command: `shapesandstrides replay` is not
-    a command. It is already printed on the human path, which is a known
-    defect, and repeating it here would plant the same false affordance in
-    machine-readable output where something will act on it. minimal_failure
-    carries the shape and the seed, which is the same information without the
-    broken promise.
+    Deliberately omits report.replay_hint. minimal_failure already carries the
+    shape and the seed as structured fields, so repeating them as one string
+    would be redundant here. The hint exists for the human path, where a single
+    line reads better than two fields.
+
+    Note this used to omit a `replay_command` that named `shapesandstrides
+    replay`, a subcommand that does not exist. That string is gone from every
+    path now, not just this one.
     """
     if error is not None:
         return {

@@ -125,7 +125,7 @@ def test_a_record_with_a_shape_mismatch_round_trips(tmp_path):
         total=1,
         failed_count=1,
         minimal_failure=outcome,
-        replay_command="shapesandstrides replay --shape 10x10 --seed 1",
+        replay_hint="shape=10x10 seed=1",
     )
     r = _record(correctness=correctness)
     save_run(r, root=tmp_path)

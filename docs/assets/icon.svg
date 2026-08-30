@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="shapesandstrides">
+<rect width="64" height="64" rx="13.0" fill="#0F1115"/>
+<line x1="43.0" y1="13.0" x2="43.0" y2="51.0" stroke="#39404D" stroke-width="1.4" stroke-linecap="round"/>
+<rect x="7.0" y="16.0" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
+<rect x="18.5" y="16.0" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
+<rect x="30.0" y="16.0" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
+<rect x="7.0" y="27.5" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
+<rect x="18.5" y="27.5" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
+<rect x="30.0" y="27.5" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
+<rect x="7.0" y="39.0" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
+<rect x="18.5" y="39.0" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
+<rect x="30.0" y="39.0" width="9.0" height="9.0" rx="1.6" fill="#E9EDF2"/>
+<rect x="48.0" y="27.5" width="9.0" height="9.0" rx="1.6" fill="#FF5722"/>
+</svg>
